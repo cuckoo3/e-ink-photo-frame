@@ -1,0 +1,6 @@
+photo-frame-client/build/
+photo-frame-client/sdkconfig
+
+.metadata/
+*.tmp
+*.bak
