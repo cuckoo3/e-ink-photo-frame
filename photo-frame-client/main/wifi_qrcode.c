@@ -1,0 +1,172 @@
+#include <stdint.h>
+#include <stdbool.h>
+#include "qrcode.h"
+
+#include "wifi_qrcode.h"
+#include "GDEP133C02.h"
+#include "esp_log.h"
+
+/* Custom callback function invoked by esp_qrcode_generate to render onto EPD */
+void epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
+{
+    uint16_t qrcode_size = esp_qrcode_get_size(qrcode);
+
+    /*
+     * Keep the original QR scale for now.
+     *
+     * E6 format:
+     *   4 bits per pixel
+     *   2 pixels per byte
+     */
+    uint32_t qr_pixel_size = qrcode_size * QR_SCALE;
+
+    uint32_t width_bytes = (qr_pixel_size + 1) / 2;
+
+    uint32_t final_size = width_bytes * qr_pixel_size;
+
+    ESP_LOGI(TAG_WIFI_QRCODE, "QR size=%u x %u, buffer=%lu bytes", qr_pixel_size, qr_pixel_size, (unsigned long)final_size);
+
+    uint8_t *final_buffer = (uint8_t *)malloc(final_size);
+
+    if (final_buffer == NULL) {
+        ESP_LOGE(TAG_WIFI_QRCODE, "Failed to allocate QR buffer: %lu bytes", (unsigned long)final_size);
+        return;
+    }
+
+    /*
+     * Fill with WHITE.
+     *
+     * E6:
+     *   one byte = two 4-bit pixels
+     */
+    uint8_t white = WHITE & 0x0F;
+
+    memset(final_buffer, (white << 4) | white, final_size);
+
+    /*
+     * Render QR.
+     */
+	 for (uint16_t y = 0; y < qrcode_size; y++) {
+	     for (uint16_t x = 0; x < qrcode_size; x++) {
+
+	         if (!esp_qrcode_get_module(qrcode, x, y))
+	             continue;
+
+	         uint8_t black = BLACK & 0x0F;
+
+	         for (uint32_t sy = 0; sy < QR_SCALE; sy++) {
+	             for (uint32_t sx = 0; sx < QR_SCALE; sx++) {
+
+	                 uint32_t px = x * QR_SCALE + sx;
+	                 uint32_t py = y * QR_SCALE + sy;
+
+					 // 180° rotation
+					 uint32_t rotated_x = qr_pixel_size - 1 - px;
+					 uint32_t rotated_y = qr_pixel_size - 1 - py;
+
+					 // E6 data is stored right-to-left
+					 uint32_t reversed_x = qr_pixel_size - 1 - rotated_x;
+
+					 uint32_t byte_index =
+					     rotated_y * width_bytes +
+					     (reversed_x / 2);
+
+					 if ((reversed_x & 1) == 0) {
+					     // High nibble
+					     final_buffer[byte_index] &= 0x0F;
+					     final_buffer[byte_index] |= black << 4;
+					 } else {
+					     // Low nibble
+					     final_buffer[byte_index] &= 0xF0;
+					     final_buffer[byte_index] |= black;
+					 }
+	             }
+	         }
+	     }
+	 }
+
+    /*
+     * E6 logical area for one CS:
+     *
+     *   SCREEN_HALF_WIDTH × SCREEN_HEIGHT
+     */
+    unsigned int driver_xPixel = qr_pixel_size;
+    unsigned int driver_yLine  = qr_pixel_size;
+
+    if (driver_xPixel > SCREEN_HALF_WIDTH || driver_yLine > SCREEN_HEIGHT) {
+
+        ESP_LOGE(TAG_WIFI_QRCODE, "QR too large: %u x %u", driver_xPixel, driver_yLine);
+
+        free(final_buffer);
+        return;
+    }
+
+    /*
+     * Center horizontally.
+     *
+     * xStart must be divisible by 4.
+     */
+    unsigned int driver_xStart =
+        ((SCREEN_HALF_WIDTH - driver_xPixel) / 2) & ~0x03;
+
+    /*
+     * Center vertically in SCREEN_HEIGHT.
+     *
+     * yStart must be even.
+     */
+    unsigned int driver_yStart =
+        ((SCREEN_HEIGHT - driver_yLine) / 2) & ~0x01;
+
+    ESP_LOGI(TAG_WIFI_QRCODE,
+             "QR window: x=%u y=%u w=%u h=%u",
+             driver_xStart,
+             driver_yStart,
+             driver_xPixel,
+             driver_yLine);
+
+    /*
+     * White screen.
+     */
+    epdDisplayColor(WHITE);
+
+    /*
+     * Send image.
+     */
+    partialWindowUpdateWithImageData(
+        0,
+        final_buffer,
+        final_size,
+        driver_xStart,
+        driver_yStart,
+        driver_xPixel,
+        driver_yLine,
+        1
+    );
+
+    free(final_buffer);
+}
+
+/* Blocking synchronous function to render QR code on EPD */
+void show_epd_qr_code(const char *uri_string)
+{
+    if (uri_string == NULL) {
+        ESP_LOGE(TAG_WIFI_QRCODE, "URI string is NULL!");
+        return;
+    }
+
+    ESP_LOGI(TAG_WIFI_QRCODE, "Generating QR Code directly for E-Paper display...");
+
+
+
+    // 2. Configure Espressif QR Code generator
+    esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
+    cfg.display_func = epd_qrcode_display_cb;
+    cfg.max_qrcode_version = 10;
+    cfg.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
+
+    // 3. Generate QR code synchronously
+    esp_err_t ret = esp_qrcode_generate(&cfg, uri_string);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG_WIFI_QRCODE, "Failed to generate QR code: %s", esp_err_to_name(ret));
+    }
+}
