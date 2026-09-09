@@ -11,11 +11,6 @@
  */
 void init_display(void);
 
-/**
- * @brief Set the display color
- *
- * @param colorSelect The color to display
- */
-void clearScreen();
+void clearScreenAsync(void);
 
 #endif /* DISPLAY_HANDLER_H */

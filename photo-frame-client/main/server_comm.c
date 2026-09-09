@@ -50,7 +50,7 @@
          close(sock);
          return false;
      }
-     ESP_LOGI(TAG, "Sent UDP discovery packet...");
+     ESP_LOGI(TAG_SERVER_COMM, "Sent UDP discovery packet...");
 
      // Wait for response
      char rx_buffer[128];
@@ -59,7 +59,7 @@
      int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &socklen);
 
      if (len < 0) {
-         ESP_LOGE(TAG, "recvfrom failed or timed out: errno %d", errno);
+         ESP_LOGE(TAG_SERVER_COMM, "recvfrom failed or timed out: errno %d", errno);
          close(sock);
          return false;
      }
@@ -72,7 +72,7 @@
      if (strncmp(rx_buffer, "SERVER_ACK:", 11) == 0) {
          inet_ntoa_r(source_addr.sin_addr, server_ip_str, sizeof(server_ip_str));
          server_http_port = atoi(rx_buffer + 11);
-         ESP_LOGI(TAG, "Discovered Server IP: %s, HTTP Port: %d", server_ip_str, server_http_port);
+         ESP_LOGI(TAG_SERVER_COMM, "Discovered Server IP: %s, HTTP Port: %d", server_ip_str, server_http_port);
          close(sock);
          return true;
      }
@@ -99,7 +99,7 @@
      if (err == ESP_OK) {
          int status_code = esp_http_client_get_status_code(client);
          int content_length = esp_http_client_get_content_length(client);
-         ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %d", status_code, content_length);
+         ESP_LOGI(TAG_SERVER_COMM, "HTTP GET Status = %d, content_length = %d", status_code, content_length);
 
          if (status_code == 200) {
              char buffer[512] = {0};

@@ -5,12 +5,15 @@
  *      Author: Cuckoo
  */
 
-#ifndef MAIN_DPP_ENROLLEE_H_
-#define MAIN_DPP_ENROLLEE_H_
+#ifndef DPP_ENROLLEE_H_
+#define DPP_ENROLLEE_H_
+
+#include "esp_wifi.h"
 
 #define TAG_DPP_ENROLLEE "DPP_ENROLLEE"
 
-void dpp_enrollee_init(void);
+
+void dpp_enrollee_init(wifi_config_t *wifi_config);
 
 
-#endif /* MAIN_DPP_ENROLLEE_H_ */
+#endif /* DPP_ENROLLEE_H_ */

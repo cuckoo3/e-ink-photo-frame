@@ -15,6 +15,9 @@ idf_component_register(SRCS "main.c"
                     			qrcode
                     			json
                     			freertos
-                    INCLUDE_DIRS ".")
+                    INCLUDE_DIRS "."
+                    REQUIRES
+				        wpa_supplicant
+				)
 
 component_compile_options("-include" "stdbool.h")

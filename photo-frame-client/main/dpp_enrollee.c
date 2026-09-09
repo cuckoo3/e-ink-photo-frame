@@ -8,6 +8,7 @@
 */
 #include <string.h>
 #include <stdbool.h>
+#include "dpp_enrollee.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -19,7 +20,6 @@
 
 // --- Good-Display EPD related headers ---
 #include "wifi_qrcode.h"
-#include "display_handler.h"
 
 #ifdef CONFIG_ESP_DPP_LISTEN_CHANNEL_LIST
 #define EXAMPLE_DPP_LISTEN_CHANNEL_LIST     CONFIG_ESP_DPP_LISTEN_CHANNEL_LIST
@@ -41,7 +41,7 @@
 
 #define CURVE_SEC256R1_PKEY_HEX_DIGITS     64
 
-wifi_config_t s_dpp_wifi_config;
+wifi_config_t *s_dpp_wifi_config;
 
 static int s_retry_num = 0;
 
@@ -72,10 +72,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             }
             break;
         case WIFI_EVENT_STA_CONNECTED:
-	    		ESP_LOGI(TAG_DPP_ENROLLEE, "Successfully connected to the AP ssid : %s ", s_dpp_wifi_config.sta.ssid);
-			// clear the EPD display after successful connection
-			clearScreen();
-            
+	    		ESP_LOGI(TAG_DPP_ENROLLEE, "Successfully connected to the AP ssid : %s ", s_dpp_wifi_config->sta.ssid);
 			break;
         case WIFI_EVENT_DPP_URI_READY:
 			wifi_event_dpp_uri_ready_t *uri_data = event_data;
@@ -88,9 +85,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             break;
         case WIFI_EVENT_DPP_CFG_RECVD:
             wifi_event_dpp_config_received_t *config = event_data;
-            memcpy(&s_dpp_wifi_config, &config->wifi_cfg, sizeof(s_dpp_wifi_config));
+            memcpy(s_dpp_wifi_config, &config->wifi_cfg, sizeof(*s_dpp_wifi_config));
             s_retry_num = 0;
-            esp_wifi_set_config(ESP_IF_WIFI_STA, &s_dpp_wifi_config);
+            esp_wifi_set_config(ESP_IF_WIFI_STA, s_dpp_wifi_config);
             esp_wifi_connect();
             break;
         case WIFI_EVENT_DPP_FAILED:
@@ -150,13 +147,21 @@ esp_err_t dpp_enrollee_bootstrap(void)
     return ret;
 }
 
-void dpp_enrollee_init(void)
+void dpp_enrollee_init(wifi_config_t *wifi_config)
 {
+	s_dpp_wifi_config = wifi_config;
+	
     s_dpp_event_group = xEventGroupCreate();
 
     ESP_ERROR_CHECK(esp_netif_init());
 
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+	
+	// moved the event loop creation ESP_ERROR_CHECK(esp_event_loop_create_default()); to the main.c file to avoid the error "esp_event_loop_create_default() has already been called"
+	esp_err_t err = esp_event_loop_create_default();
+	if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+	    ESP_ERROR_CHECK(err);
+	}
+	
     esp_netif_create_default_wifi_sta();
 
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
@@ -183,7 +188,7 @@ void dpp_enrollee_init(void)
     if (bits & DPP_CONNECTED_BIT) {
     } else if (bits & DPP_CONNECT_FAIL_BIT) {
         ESP_LOGI(TAG_DPP_ENROLLEE, "Failed to connect to SSID:%s, password:%s",
-                 s_dpp_wifi_config.sta.ssid, s_dpp_wifi_config.sta.password);
+                 s_dpp_wifi_config->sta.ssid, s_dpp_wifi_config->sta.password);
     } else if (bits & DPP_AUTH_FAIL_BIT) {
         ESP_LOGI(TAG_DPP_ENROLLEE, "DPP Authentication failed after %d retries", s_retry_num);
     } else {
