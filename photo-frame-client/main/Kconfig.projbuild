@@ -1,4 +1,4 @@
-menu "Example Configuration"
+menu "Photo Frame Network Configuration"	
     config ESP_DPP_LISTEN_CHANNEL_LIST
         string "DPP Listen channel list"
         default "6"
@@ -14,4 +14,17 @@ menu "Example Configuration"
         string "Additional Device Info"
         help
             Additional ancillary information to be included in QR Code.
+
+	config APP_MULTICAST
+	        string "Multicast IPv4 Address"
+	        default "239.255.255.250"
+	        help
+	            IPv4 multicast group address for display frame discovery.
+
+    config APP_UDP_PORT
+        int "UDP Listener Port"
+        default 8963
+        range 1024 65535
+        help
+            UDP port number for network discovery service.
 endmenu

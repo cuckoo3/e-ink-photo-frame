@@ -30,7 +30,7 @@ udpServer.on('error', (err) => {
 
 udpServer.on('listening', () => {
     try {
-        udpServer.addMembership(config.multicastAddress);
+        udpServer.addMembership(config.multicastAddress, '0.0.0.0');
         const address = udpServer.address();
         console.log(`[UDP] Successfully joined multicast group ${config.multicastAddress}:${address.port}`);
     } catch (err) {
@@ -63,7 +63,7 @@ udpServer.on('message', (msg, rinfo) => {
 });
 
 // Bind UDP Socket using configured port
-udpServer.bind(config.udpPort);
+udpServer.bind(config.udpPort, '0.0.0.0');
 
 // =========================================================================
 // 4. REST API Endpoints

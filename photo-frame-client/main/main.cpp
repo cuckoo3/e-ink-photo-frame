@@ -1,17 +1,26 @@
 #include "nvs_flash.h"
 #include "esp_event.h"
-#include "esp_wifi.h"
 #include "esp_log.h"
 
 // --- Good-Display EPD related headers ---
-#include "dpp_enrollee.h"
-#include "server_comm.h"
-#include "display_handler.h"
+#include "display_handler.hpp"
+#include "dpp_enrollee.hpp"
+#include "server_comm.hpp"
 
-static const char *TAG = "MAIN";
+extern "C" {
+	#include "GDEP133C02.h"
+	#include "comm.h"
+}
 
+inline static constexpr char TAG[] ="MAIN";
+
+DisplayHandler displayHandler;
 wifi_config_t esp32_wifi_config;
 esp_netif_ip_info_t ip_info;
+ServerComm serverComm;
+
+char server_ip_str[16] = {0};
+int server_http_port = 0;
 
 static void on_got_ip_handler(void* arg, esp_event_base_t event_base, 
                              int32_t event_id, void* event_data)
@@ -23,12 +32,16 @@ static void on_got_ip_handler(void* arg, esp_event_base_t event_base,
 		memcpy(&ip_info, &event->ip_info, sizeof(esp_netif_ip_info_t));
         
 		// Non-blocking trigger—returns instantly so network routines can run in parallel!
-		clearScreenAsync();
+		displayHandler.clearScreenAsync();
 		// server_comm_start(&event->ip_info.ip);
+		
+		//TODO: double check the logic of dppEnrolle and try to remove the event handle in main. move to the app_main after dpp_enrollee_init;
+		serverComm.connect_server(server_ip_str, server_http_port);
+		ESP_LOGI(TAG, "Discovered Server IP: %s, HTTP Port: %d", server_ip_str, server_http_port);
     }
 }
 
-void app_main(void)
+extern "C" void app_main(void)
 {
     //Initialize NVS
     esp_err_t ret = nvs_flash_init();
@@ -38,7 +51,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 	
-	init_display();
+	displayHandler.init_display();
 	
 	// 1. Create event loop first
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -53,7 +66,10 @@ void app_main(void)
     ));
 
     // 3. Now run DPP provisioning/connection (blocking call)
-    dpp_enrollee_init(&esp32_wifi_config); 
+    DppEnrollee dppEnrolle;
+	dppEnrolle.dpp_enrollee_init(&esp32_wifi_config); 
+	
+	
 }
 
 

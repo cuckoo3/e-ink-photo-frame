@@ -5,7 +5,6 @@
 
 /build/
 sdkconfig
-sdkconfig.defaults
 sdkconfig.old
 /managed_components/
 dependencies.lock

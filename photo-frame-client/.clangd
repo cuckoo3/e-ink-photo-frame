@@ -1,5 +1,5 @@
 CompileFlags:
-  CompilationDatabase: K:\photoframe\e-ink-photo-frame\photo-frame-client\build
+  CompilationDatabase: build
   Remove: [-m*, -f*]
   Add: [-include, stdbool.h]
 Diagnostics: {Suppress: unknown_typename}
