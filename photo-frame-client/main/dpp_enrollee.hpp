@@ -12,7 +12,7 @@ class DppEnrollee {
 		 *
 		 * @param wifi_config Pointer to the WiFi configuration structure
 		 */
-		void dpp_enrollee_init(wifi_config_t *wifi_config);
+		bool dpp_enrollee_init(wifi_config_t *wifi_config);
 	private:
 		inline static bool s_is_dpp_mode = false;
 		/**
@@ -31,4 +31,6 @@ class DppEnrollee {
 								  int32_t event_id, void *event_data);
 		
 		esp_err_t dpp_enrollee_bootstrap(void);
+		
+		void start_dpp_flow(void);
 };
