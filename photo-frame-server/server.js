@@ -2,6 +2,7 @@ const express = require('express');
 const dgram = require('dgram');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 
 // Load configuration parameters from config.json
 const config = require('./config.json');
@@ -108,6 +109,9 @@ udpServer.bind(config.udpPort, '0.0.0.0');
 // 4. REST API Endpoints
 // =========================================================================
 
+// Setup upload directory path
+const UPLOAD_BIN_DIR = path.join(__dirname, 'uploads/bin/');
+
 app.get('/api/status', (req, res) => {
     res.json(systemStatus);
 });
@@ -121,6 +125,60 @@ app.post('/api/update-message', (req, res) => {
     } else {
         res.status(400).json({ success: false, error: 'Missing message field' });
     }
+});
+
+app.get('/api/image', (req, res) => {
+	console.log(req.headers);
+	const deviceMac = req.headers['x-device-mac'];
+	if (!deviceMac)
+		console.log('[Server] Request: /api/image: Missing X-Device-MAC header');
+	else
+		console.log(`[Server] Request: /api/image: received from ESP32 MAC: ${deviceMac}`);
+	
+	requestedFile = "image.bin";
+	if (requestedFile) {
+        filePath = path.join(UPLOAD_BIN_DIR, path.basename(requestedFile));
+    } else {
+		// get the latest file from the UPLOAD_BIN_DIR
+        try {
+            const files = fs.readdirSync(UPLOAD_BIN_DIR)
+                .filter(file => file.endsWith('.bin'))
+                .map(file => ({
+                    name: file,
+                    time: fs.statSync(path.join(UPLOAD_BIN_DIR, file)).mtime.getTime()
+                }))
+                .sort((a, b) => b.time - a.time); // Sort newest first
+
+            if (files.length === 0) {
+                return res.status(404).send('No .bin images found on server');
+            }
+
+            filePath = path.join(UPLOAD_BIN_DIR, files[0].name);
+        } catch (err) {
+            console.error('[HTTP Error] Failed to read uploads directory:', err);
+            return res.status(500).send('Server storage error');
+        }
+    }
+
+    // Verify file existence before sending
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('Requested image file not found');
+    }
+
+    // Set binary content headers for ESP32 streaming
+    res.setHeader('Content-Type', 'application/octet-stream');
+    
+    // Send file stream
+    res.sendFile(filePath, (err) => {
+        if (err) {
+            console.error(`[HTTP Error] Failed to send ${filePath}:`, err);
+            if (!res.headersSent) {
+                res.status(500).send('Error streaming file');
+            }
+        } else {
+            console.log(`[HTTP] Successfully sent binary image: ${path.basename(filePath)}`);
+        }
+    });
 });
 
 app.get('/api/display-data', (req, res) => {
