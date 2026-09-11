@@ -13,6 +13,8 @@ class DppEnrollee {
 		 * @param wifi_config Pointer to the WiFi configuration structure
 		 */
 		bool dpp_enrollee_init(wifi_config_t *wifi_config);
+		
+		bool is_dpp_mode(void);
 	private:
 		inline static bool s_is_dpp_mode = false;
 		/**

@@ -268,3 +268,8 @@ bool DppEnrollee::dpp_enrollee_init(wifi_config_t *wifi_config)
 
     return connection_successful;
 }
+
+bool DppEnrollee::is_dpp_mode(void)
+{
+	return s_is_dpp_mode;
+}

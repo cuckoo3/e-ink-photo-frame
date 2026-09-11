@@ -552,4 +552,106 @@ char  partialWindowUpdateWithoutImageData(unsigned char csx, unsigned int xStart
 	return status;
 }
 
+// Display screen parameters (already provided)
+#define EPD_WIDTH 1200         // Total display width (pixels)
+#define EPD_HEIGHT 1600        // Display height (pixels)
+//#define FIRST_PACK_SIZE 480000 // First data packet size (bytes)
+//#define TOTAL_IMAGE_SIZE 960000 // Total image data size (bytes)
+
+void pic_display(const unsigned char *num)
+{
+    unsigned int Width, Width1, Height;
+    // Calculate width and height using the same method as the second code
+    Width = (EPD_WIDTH % 2 == 0) ? (EPD_WIDTH / 2) : (EPD_WIDTH / 2 + 1); // Width per section (pixels)
+    Width1 = (Width % 2 == 0) ? (Width / 2) : (Width / 2 + 1);            // Width per section (bytes, assuming 8 bits per pixel)
+    Height = EPD_HEIGHT;                                                   // Height (pixels)
+
+    // Transfer data to the first section (main display)
+    setPinCsAll(GPIO_HIGH);        // Deselect all
+    setPinCs(0, 0);                // Select the first section (main display)
+    writeEpdCommand(DTM);          // Send data transfer mode command
+    for (unsigned int i = 0; i < Height; i++)
+    {
+        writeEpdData(num + i * Width, Width1); // Send the first half of each row's data
+        vTaskDelay(pdMS_TO_TICKS(1));          // Delay 1ms to avoid hardware overload
+    }
+    setPinCsAll(GPIO_HIGH);        // Deselect
+
+    // Transfer data to the second section (secondary display)
+    setPinCs(1, 0);                // Select the second section (secondary display)
+    writeEpdCommand(DTM);          // Send data transfer mode command
+    for (unsigned int i = 0; i < Height; i++)
+    {
+        writeEpdData(num + i * Width + Width1, Width1); // Send the second half of each row's data
+        vTaskDelay(pdMS_TO_TICKS(1));                   // Delay 1ms
+    }
+    setPinCsAll(GPIO_HIGH);        // Deselect
+
+    // Refresh the display
+    epdDisplay();                  // Trigger display
+    vTaskDelay(pdMS_TO_TICKS(10)); // Delay 10ms to ensure refresh completion
+    printf("Rendering completed\r\n"); // Print completion message
+}
+
+void pic_display_from_file(const char *filepath)
+{
+    FILE *f = fopen(filepath, "rb");
+    if (!f) {
+        printf("Failed to open image file from LittleFS: %s\n", filepath);
+        return;
+    }
+
+    unsigned int Width = (EPD_WIDTH % 2 == 0) ? (EPD_WIDTH / 2) : (EPD_WIDTH / 2 + 1);
+    unsigned int Width1 = (Width % 2 == 0) ? (Width / 2) : (Width / 2 + 1);
+    unsigned int Height = EPD_HEIGHT;
+
+    // Allocate buffer for a single horizontal row across both sections
+    size_t fullRowBytes = Width1 * 2;
+    unsigned char *rowBuf = (unsigned char *)malloc(fullRowBytes);
+    if (!rowBuf) {
+        printf("Failed to allocate row buffer!\n");
+        fclose(f);
+        return;
+    }
+
+    // --- Pass 1: Transfer data to Master Controller (CS 0) ---
+    setPinCsAll(GPIO_HIGH);
+    setPinCs(0, 0);
+    writeEpdCommand(DTM);
+
+    for (unsigned int i = 0; i < Height; i++) {
+        // Seek to start of row i
+        fseek(f, i * fullRowBytes, SEEK_SET);
+        fread(rowBuf, 1, fullRowBytes, f);
+
+        // Send first half of row data (Width1 bytes)
+        writeEpdData(rowBuf, Width1);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    setPinCsAll(GPIO_HIGH);
+
+    // --- Pass 2: Transfer data to Slave Controller (CS 1) ---
+    setPinCs(1, 0);
+    writeEpdCommand(DTM);
+
+    for (unsigned int i = 0; i < Height; i++) {
+        // Seek to start of row i
+        fseek(f, i * fullRowBytes, SEEK_SET);
+        fread(rowBuf, 1, fullRowBytes, f);
+
+        // Send second half of row data (offset by Width1)
+        writeEpdData(rowBuf + Width1, Width1);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    setPinCsAll(GPIO_HIGH);
+
+    // Cleanup resources
+    free(rowBuf);
+    fclose(f);
+
+    // Trigger physical panel refresh
+    epdDisplay();
+    vTaskDelay(pdMS_TO_TICKS(10));
+    printf("Rendering from LittleFS completed\r\n");
+}
 

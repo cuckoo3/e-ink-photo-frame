@@ -11,6 +11,10 @@ class DisplayHandler {
 		static void init_display();
 		
 		static void clearScreenAsync();
+		
+		void display_image(const char *filepath);
+		
+		void display_image_array(const unsigned char *gImage);
 	
 	private:
 		/**

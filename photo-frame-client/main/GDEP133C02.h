@@ -89,3 +89,6 @@ __GDEP133C02_EXTERN__ void writeEpdImage(unsigned char csx, unsigned char const 
 __GDEP133C02_EXTERN__ unsigned char checkDriverICStatus(void);
 __GDEP133C02_EXTERN__ char partialWindowUpdateWithImageData(unsigned char csx, unsigned char const *imageData, unsigned long dataSize, unsigned int xStart, unsigned int yStart, unsigned int xPixel, unsigned int yLine, unsigned char displayEnable);
 __GDEP133C02_EXTERN__ char partialWindowUpdateWithoutImageData(unsigned char csx, unsigned int xStart, unsigned int yStart, unsigned int xPixel, unsigned int yLine, unsigned char epdDisplayEnable);
+
+__GDEP133C02_EXTERN__ void pic_display(const unsigned char *num);
+__GDEP133C02_EXTERN__ void pic_display_from_file(const char *filepath);

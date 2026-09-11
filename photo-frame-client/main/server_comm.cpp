@@ -1,9 +1,11 @@
+#include <cstddef>
 #include <string>
 #include <sys/param.h>
 #include "driver/dedic_gpio.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
 #include "esp_http_client.h"
+#include "esp_mac.h"
 #include "cJSON.h"
 
 #include "app_config.hpp"
@@ -14,6 +16,26 @@ inline static constexpr char DISCOVERY_MSG[] = "DISCOVER_ESP_SERVER";
 inline static constexpr char TAG[] = "SERVER_COMM";
 // Retry configuration
 inline static constexpr int MAX_DISCOVERY_RETRIES = 5;
+
+
+
+const char * ServerComm::get_mac_address(void)
+{
+	if (mac_str != nullptr) {
+		return mac_str; // Return cached MAC address if already retrieved
+	}
+	else {
+		uint8_t mac[6];
+	    esp_efuse_mac_get_default(mac);
+	
+	    char mac_str[18];
+	    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+	             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	
+	    ESP_LOGI(TAG, "Device MAC: %s", mac_str);
+		return mac_str;
+	}
+}
 
 // =========================================================================
 // UDP Multicast Discovery
@@ -166,19 +188,68 @@ void ServerComm::fetch_display_data(const char *server_ip, int server_port)
 	esp_http_client_cleanup(client);
 }
 
-
-//void ServerComm::start_background_sync_task(void)
-//{
-//    // Create FreeRTOS task running the background sync entry
-//    xTaskCreate(&ServerComm::sync_task_entry, "server_sync_task", 4096, this, 5, NULL);
-//}
-
 void ServerComm::connect_server(char* server_ip, int &server_port)
 {
     if (discover_server(server_ip, server_port)) {
-        ESP_LOGI(TAG, "Server discovery successful. Fetching display data...");
-        fetch_display_data(server_ip, server_port);
+        ESP_LOGI(TAG, "Server discovery successful.");
+//        fetch_display_data(server_ip, server_port);
     } else {
         ESP_LOGW(TAG, "Server discovery failed.");
     }
+}
+
+char* ServerComm::get_image(const char *server_ip, int server_port)
+{
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d/api/image", server_ip, server_port);
+
+	// 1. Configure HTTP client
+    esp_http_client_config_t config = {
+        .url = url,
+        .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+	
+	// 2. Attach MAC address header
+	esp_http_client_set_header(client, "x-device-mac", get_mac_address());
+
+	// 3. Perform request
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return NULL;
+    }
+
+    int content_length = esp_http_client_fetch_headers(client);
+    if (content_length <= 0) {
+        ESP_LOGE(TAG, "Invalid content length received");
+        esp_http_client_cleanup(client);
+        return NULL;
+    }
+
+	// 4. Store the incoming image data to storage (LittleFS)
+	char* filepath = "/data/image01.bin";
+    FILE *f = fopen(filepath, "wb");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open LittleFS file for writing");
+        esp_http_client_cleanup(client);
+        return NULL;
+    }
+
+    char buffer[1024];
+    int read_bytes = 0;
+    int total_read = 0;
+
+    // Stream directly into flash
+    while ((read_bytes = esp_http_client_read(client, buffer, sizeof(buffer))) > 0) {
+        fwrite(buffer, 1, read_bytes, f);
+        total_read += read_bytes;
+    }
+
+    fclose(f);
+    esp_http_client_cleanup(client);
+
+    ESP_LOGI(TAG, "Successfully saved %d bytes to /data/image01.bin", total_read);
+    return filepath;
 }

@@ -46,3 +46,13 @@ void DisplayHandler::clearScreenAsync(void)
         NULL                 // Task handle (not needed)
     );
 }
+
+void DisplayHandler::display_image(const char *filepath)
+{
+	pic_display_from_file(filepath);
+}
+
+void DisplayHandler::display_image_array(const unsigned char *gImage)
+{
+	pic_display((const unsigned char *)gImage);
+}
