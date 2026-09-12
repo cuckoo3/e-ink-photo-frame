@@ -3,6 +3,7 @@ const dgram = require('dgram');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // Load configuration parameters from config.json
 const config = require('./config.json');
@@ -110,7 +111,7 @@ udpServer.bind(config.udpPort, '0.0.0.0');
 // =========================================================================
 
 // Setup upload directory path
-const UPLOAD_BIN_DIR = path.join(__dirname, 'uploads/bin/');
+const STORAGE_DIR = path.join(__dirname, 'uploads');
 
 app.get('/api/status', (req, res) => {
     res.json(systemStatus);
@@ -127,58 +128,155 @@ app.post('/api/update-message', (req, res) => {
     }
 });
 
-app.get('/api/image', (req, res) => {
-	console.log(req.headers);
-	const deviceMac = req.headers['x-device-mac'];
-	if (!deviceMac)
-		console.log('[Server] Request: /api/image: Missing X-Device-MAC header');
-	else
-		console.log(`[Server] Request: /api/image: received from ESP32 MAC: ${deviceMac}`);
-	
-	requestedFile = "image.bin";
-	if (requestedFile) {
-        filePath = path.join(UPLOAD_BIN_DIR, path.basename(requestedFile));
-    } else {
-		// get the latest file from the UPLOAD_BIN_DIR
-        try {
-            const files = fs.readdirSync(UPLOAD_BIN_DIR)
-                .filter(file => file.endsWith('.bin'))
-                .map(file => ({
-                    name: file,
-                    time: fs.statSync(path.join(UPLOAD_BIN_DIR, file)).mtime.getTime()
-                }))
-                .sort((a, b) => b.time - a.time); // Sort newest first
+// Helper function to compute MD5 hash of a local file on the server
+function getFileMD5(filePath) {
+    try {
+        const fileBuffer = fs.readFileSync(filePath);
+        const hashSum = crypto.createHash('md5');
+        hashSum.update(fileBuffer);
+		md5 = hashSum.digest('hex');
+        return md5;
+    } catch (err) {
+		console.error(err);
+        return null;
+    }
+}
 
-            if (files.length === 0) {
-                return res.status(404).send('No .bin images found on server');
-            }
+// Helper function to format MAC address into a clean folder name (e.g. "24DCC3A1B2C3")
+function formatMacFolderName(mac) {
+    if (!mac || typeof mac !== 'string') {
+        console.warn('formatMacFolderName received invalid MAC:', mac);
+        return '';
+    }
+    return mac.replace(/:/g, '').toUpperCase();
+}
 
-            filePath = path.join(UPLOAD_BIN_DIR, files[0].name);
-        } catch (err) {
-            console.error('[HTTP Error] Failed to read uploads directory:', err);
-            return res.status(500).send('Server storage error');
+/**
+ * 1. POST /api/sync
+ * 
+ * 
+ * {
+	  "mac": "24:DC:C3:A1:B2:C3",
+	  "local_files": [
+	    { "name": "photo01.bin", "size": 96000, md5": xxxxxx },
+	    { "name": "photo02.bin", "size": 96000, "md5": xxxxxx }
+	  ]
+	}
+ * Receives ESP32 local files list and computes the diff payload.
+ */
+app.post('/api/sync', (req, res) => {
+    const { mac, local_files } = req.body;
+
+    if (!mac || !Array.isArray(local_files)) {
+        console.warn('[Sync] Invalid sync request payload from client');
+        return res.status(400).json({ error: 'Missing MAC address or local_files array' });
+    }
+
+    const deviceFolder = path.join(STORAGE_DIR, formatMacFolderName(mac), 'bin');
+
+    // Ensure the device folder exists (creates it on first contact if missing)
+    if (!fs.existsSync(deviceFolder)) {
+        fs.mkdirSync(deviceFolder, { recursive: true });
+        console.log(`[Sync] Created new image directory for device MAC: ${mac}`);
+    }
+
+    // Map ESP32 local files by name for O(1) lookup
+    const espFilesMap = new Map();
+    local_files.forEach(file => {
+        espFilesMap.set(file.name, { size: file.size, md5: file.md5 });
+    });
+
+    // Scan server-managed directory for this device
+    const serverFiles = fs.readdirSync(deviceFolder).filter(file => file.endsWith('.bin'));
+
+    const newDownloads = [];
+    const serverFileNames = new Set(serverFiles);
+
+    // Step A: Determine which files need to be downloaded or updated on the ESP32
+    serverFiles.forEach(fileName => {
+        const filePath = path.join(deviceFolder, fileName);
+        const stats = fs.statSync(filePath);
+        const serverSize = stats.size;
+        const serverMD5 = getFileMD5(filePath);
+
+        const espFile = espFilesMap.get(fileName);
+
+        let needsDownload = false;
+
+        if (!espFile) {
+            // File doesn't exist on ESP32
+            needsDownload = true;
+            console.log(`[Sync] [${mac}] New file needed on client: ${fileName}`);
+        } else if (espFile.size !== serverSize) {
+            // File size mismatch (corrupted or updated)
+            needsDownload = true;
+            console.log(`[Sync] [${mac}] Size mismatch for ${fileName} (Client: ${espFile.size}, Server: ${serverSize})`);
+        } else if (espFile.md5 && serverMD5 && espFile.md5 !== serverMD5) {
+            // MD5 mismatch (file content updated on server)
+            needsDownload = true;
+            console.log(`[Sync] [${mac}] MD5 mismatch for ${fileName} (Client: ${espFile.md5}, Server: ${serverMD5})`);
         }
-    }
 
-    // Verify file existence before sending
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).send('Requested image file not found');
-    }
-
-    // Set binary content headers for ESP32 streaming
-    res.setHeader('Content-Type', 'application/octet-stream');
-    
-    // Send file stream
-    res.sendFile(filePath, (err) => {
-        if (err) {
-            console.error(`[HTTP Error] Failed to send ${filePath}:`, err);
-            if (!res.headersSent) {
-                res.status(500).send('Error streaming file');
-            }
-        } else {
-            console.log(`[HTTP] Successfully sent binary image: ${path.basename(filePath)}`);
+        if (needsDownload) {
+            newDownloads.push({
+                name: fileName,
+                url: `/api/image/${formatMacFolderName(mac)}/${fileName}`,
+                size: serverSize,
+                md5: serverMD5
+            });
         }
     });
+
+    // Step B: Determine which files on the ESP32 are no longer on the server
+    const filesToDelete = [];
+    local_files.forEach(file => {
+        if (!serverFileNames.has(file.name)) {
+            filesToDelete.push(file.name);
+            console.log(`[Sync] [${mac}] File marked for deletion on client: ${file.name}`);
+        }
+    });
+
+    // Step C: Send the diff response back to ESP32
+    const responsePayload = {
+        new: newDownloads,
+        delete: filesToDelete
+    };
+
+    console.log(`[Sync] [${mac}] Diff computed: ${newDownloads.length} to download, ${filesToDelete.length} to delete.`);
+    return res.json(responsePayload);
+});
+
+/**
+ * 2. GET /api/images/:macFolder/:fileName
+ * Serves binary file streams to the ESP32 sequentially.
+ */
+app.get('/api/image/:macFolder/:fileName', (req, res) => {
+    const { macFolder, fileName } = req.params;
+    const filePath = path.join(STORAGE_DIR, macFolder, 'bin', fileName);
+
+    // Prevent directory traversal attacks
+    if (!filePath.startsWith(STORAGE_DIR)) {
+        return res.status(403).send('Forbidden');
+    }
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('File not found');
+    }
+
+    // Stream file as binary
+    res.setHeader('Content-Type', 'application/octet-stream');
+
+	// Send file stream
+	res.sendFile(filePath, (err) => {
+	    if (err) {
+	        console.error(`[HTTP Error] Failed to send ${filePath}:`, err);
+	        if (!res.headersSent) {
+	            res.status(500).send('Error streaming file');
+	        }
+	    } else {
+	        console.log(`[HTTP] Successfully sent binary image: ${path.basename(filePath)}`);
+	    }
+	});
 });
 
 app.get('/api/display-data', (req, res) => {
