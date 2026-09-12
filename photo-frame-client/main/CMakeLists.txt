@@ -3,6 +3,7 @@ idf_component_register(SRCS "main.cpp"
 							"display_handler.cpp"
 							"wifi_qrcode.cpp"
 							"server_comm.cpp"
+							"file_handler.cpp"
 							"GDEP133C02.c"
 							"comm.c"
                     PRIV_REQUIRES
@@ -18,6 +19,7 @@ idf_component_register(SRCS "main.cpp"
                     INCLUDE_DIRS "."
                     REQUIRES
 				        wpa_supplicant
+				        mbedtls
 				)
 
 component_compile_options("-include" "stdbool.h")

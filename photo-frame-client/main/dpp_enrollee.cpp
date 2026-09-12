@@ -8,12 +8,14 @@ extern "C" {
 	#include "esp_event.h"
 	#include "esp_dpp.h"
 	#include "esp_log.h"
+	#include "esp_sntp.h"
 	#include "GDEP133C02.h"
 	#include "comm.h"
 	#include "status.h"
 	#include "esp_wifi.h"
 }
 
+#include "app_config.hpp"
 #include "wifi_qrcode.hpp"
 #include "dpp_enrollee.hpp"
 
@@ -272,4 +274,27 @@ bool DppEnrollee::dpp_enrollee_init(wifi_config_t *wifi_config)
 bool DppEnrollee::is_dpp_mode(void)
 {
 	return s_is_dpp_mode;
+}
+
+void DppEnrollee::sync_sntp_time(void) {
+    printf("Initializing SNTP...\n");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+
+    // Wait for time to be set (max 10 seconds)
+    int retry = 0;
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < 20) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+	
+	setenv("TZ", AppConfig::TIME_ZONE, 1);
+	tzset();
+
+    // Print current time
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    ESP_LOGI(TAG, "Current time synced: %s", asctime(&timeinfo));
 }

@@ -1,15 +1,17 @@
 #include <cstddef>
 #include <string>
+#include <dirent.h>
 #include <sys/param.h>
-#include "driver/dedic_gpio.h"
-#include "esp_log.h"
+#include <sys/stat.h>
 #include "lwip/sockets.h"
+#include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_mac.h"
 #include "cJSON.h"
 
-#include "app_config.hpp"
 #include "server_comm.hpp"
+#include "app_config.hpp"
+#include "file_handler.hpp"
 
 inline static constexpr char DISCOVERY_MSG[] = "DISCOVER_ESP_SERVER";
 
@@ -18,8 +20,7 @@ inline static constexpr char TAG[] = "SERVER_COMM";
 inline static constexpr int MAX_DISCOVERY_RETRIES = 5;
 
 
-
-const char * ServerComm::get_mac_address(void)
+const char * ServerComm::_get_mac_address(void)
 {
 	if (mac_str != nullptr) {
 		return mac_str; // Return cached MAC address if already retrieved
@@ -28,8 +29,8 @@ const char * ServerComm::get_mac_address(void)
 		uint8_t mac[6];
 	    esp_efuse_mac_get_default(mac);
 	
-	    char mac_str[18];
-	    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+	    mac_str = new char[18];
+	    snprintf(mac_str, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
 	             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	
 	    ESP_LOGI(TAG, "Device MAC: %s", mac_str);
@@ -37,10 +38,15 @@ const char * ServerComm::get_mac_address(void)
 	}
 }
 
+void ServerComm::_set_http_header(const esp_http_client_handle_t *client_ptr)
+{
+	esp_http_client_set_header(*client_ptr, "x-device-mac", _get_mac_address());
+}
+
 // =========================================================================
 // UDP Multicast Discovery
 // =========================================================================
-bool ServerComm::discover_server(char* server_ip, int &server_port)
+bool ServerComm::_discover_server(char* server_ip, int &server_port)
 {
 	int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 	if (sock < 0) {
@@ -119,122 +125,275 @@ bool ServerComm::discover_server(char* server_ip, int &server_port)
 	return server_found;
 }
 
-// Event handler to append incoming chunked response data
-esp_err_t ServerComm::http_event_handler(esp_http_client_event_t *evt)
-{
+typedef struct {
+    char *data;
+    size_t len;
+} http_response_buffer_t;
+
+esp_err_t ServerComm::_http_event_handler(esp_http_client_event_t *evt) {
+    http_response_buffer_t *buf = (http_response_buffer_t *)evt->user_data;
+
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        std::string *response_body = static_cast<std::string *>(evt->user_data);
-        if (response_body != nullptr && evt->data != nullptr) {
-            response_body->append(static_cast<char *>(evt->data), evt->data_len);
+        char *new_ptr = (char *)realloc(buf->data, buf->len + evt->data_len + 1);
+        if (new_ptr == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for HTTP response");
+            return ESP_FAIL;
         }
+        buf->data = new_ptr;
+        memcpy(buf->data + buf->len, evt->data, evt->data_len);
+        buf->len += evt->data_len;
+        buf->data[buf->len] = '\0';
     }
     return ESP_OK;
 }
-// =========================================================================
-// HTTP Client Execution
-// =========================================================================
-void ServerComm::fetch_display_data(const char *server_ip, int server_port)
-{
-	char url[128];
-	snprintf(url, sizeof(url), "http://%s:%d/api/display-data", server_ip, server_port);
-	
-	std::string response_body = "";
 
-    esp_http_client_config_t config = {};
-    config.url = url;
-    config.timeout_ms = 5000;
-    config.event_handler = http_event_handler;
-    config.user_data = &response_body;
-	
-	esp_http_client_handle_t client = esp_http_client_init(&config);
-	
-	esp_err_t err = esp_http_client_perform(client);
-	if (err == ESP_OK) {
-	    int status_code = esp_http_client_get_status_code(client);
-	    ESP_LOGI(TAG, "HTTP GET Status = %d, Received Bytes = %zu", status_code, response_body.length());
-	
-		if (status_code == 200 && !response_body.empty()) {
-	        ESP_LOGI(TAG, "RAW Payload: %s", response_body.c_str());
-	
-	        // Parse JSON payload
-	        cJSON *root = cJSON_Parse(response_body.c_str());
-	        if (root) {
-	            cJSON *msg = cJSON_GetObjectItem(root, "message");
-	            cJSON *updated = cJSON_GetObjectItem(root, "updatedAt");
-	
-	            if (cJSON_IsString(msg) && (msg->valuestring != NULL)) {
-	                ESP_LOGI(TAG, "Parsed Message: %s", msg->valuestring);
-	            } else {
-	                ESP_LOGW(TAG, "Field 'message' missing or invalid format");
-	            }
-	
-	            if (cJSON_IsString(updated) && (updated->valuestring != NULL)) {
-	                ESP_LOGI(TAG, "Parsed Timestamp: %s", updated->valuestring);
-	            } else {
-	                ESP_LOGW(TAG, "Field 'updatedAt' missing or invalid format");
-	            }
-	
-	            cJSON_Delete(root);
-	        } else {
-	            ESP_LOGE(TAG, "Failed to parse JSON payload");
-	        }
+//// =========================================================================
+//// HTTP Client Execution
+//// =========================================================================
+//void ServerComm::fetch_display_data(const char *server_ip, int server_port)
+//{
+//	char url[128];
+//	snprintf(url, sizeof(url), "http://%s:%d/api/display-data", server_ip, server_port);
+//	
+//	std::string response_body = "";
+//
+//    esp_http_client_config_t config = {};
+//    config.url = url;
+//    config.timeout_ms = 5000;
+//    config.event_handler = http_event_handler;
+//    config.user_data = &response_body;
+//	
+//	esp_http_client_handle_t client = esp_http_client_init(&config);
+//	
+//	esp_err_t err = esp_http_client_perform(client);
+//	if (err == ESP_OK) {
+//	    int status_code = esp_http_client_get_status_code(client);
+//	    ESP_LOGI(TAG, "HTTP GET Status = %d, Received Bytes = %zu", status_code, response_body.length());
+//	
+//		if (status_code == 200 && !response_body.empty()) {
+//	        ESP_LOGI(TAG, "RAW Payload: %s", response_body.c_str());
+//	
+//	        // Parse JSON payload
+//	        cJSON *root = cJSON_Parse(response_body.c_str());
+//	        if (root) {
+//	            cJSON *msg = cJSON_GetObjectItem(root, "message");
+//	            cJSON *updated = cJSON_GetObjectItem(root, "updatedAt");
+//	
+//	            if (cJSON_IsString(msg) && (msg->valuestring != NULL)) {
+//	                ESP_LOGI(TAG, "Parsed Message: %s", msg->valuestring);
+//	            } else {
+//	                ESP_LOGW(TAG, "Field 'message' missing or invalid format");
+//	            }
+//	
+//	            if (cJSON_IsString(updated) && (updated->valuestring != NULL)) {
+//	                ESP_LOGI(TAG, "Parsed Timestamp: %s", updated->valuestring);
+//	            } else {
+//	                ESP_LOGW(TAG, "Field 'updatedAt' missing or invalid format");
+//	            }
+//	
+//	            cJSON_Delete(root);
+//	        } else {
+//	            ESP_LOGE(TAG, "Failed to parse JSON payload");
+//	        }
+//	    } else {
+//	        ESP_LOGW(TAG, "HTTP response status code is not 200 or body is empty");
+//	    }
+//	} else {
+//	    ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+//	}
+//	
+//	esp_http_client_cleanup(client);
+//}
+
+bool ServerComm::connect_server(char* server_ip, int &server_port)
+{
+	if (server_ip[0] == '\0' || server_port == 0) {
+	    if (_discover_server(server_ip, server_port)) {
+	        ESP_LOGI(TAG, "Server discovery successful.");
+			return true;
 	    } else {
-	        ESP_LOGW(TAG, "HTTP response status code is not 200 or body is empty");
+	        ESP_LOGW(TAG, "Server discovery failed.");
+			return false;
 	    }
-	} else {
-	    ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+	}
+	else {
+		ESP_LOGI(TAG, "Server already discovered. IP: %s, Port: %d", server_ip, server_port);
+		return true;
+	}
+}
+
+/*
+	return true if have file changes
+	false for no changes.
+	Client send following JSON:
+	
+	{
+	  "mac": "24:DC:C3:A1:B2:C3",
+	  "local_files": [
+	    { "name": "photo01.bin", "size": 96000, md5": xxxxxx },
+	    { "name": "photo02.bin", "size": 96000, "md5": xxxxxx }
+	  ]
 	}
 	
-	esp_http_client_cleanup(client);
-}
-
-void ServerComm::connect_server(char* server_ip, int &server_port)
+	Server reply following JSON:
+	
+	{
+	  "new": [
+	    { "name": "photo03.bin", "url": "/api/image/A1B2C3D4E5/photo03.bin" }
+	  ],
+	  "delete": [
+	    "photo01.bin"
+	  ]
+	}
+	
+*/
+bool ServerComm::sync_image_list(const char *server_ip, const int server_port)
 {
-    if (discover_server(server_ip, server_port)) {
-        ESP_LOGI(TAG, "Server discovery successful.");
-//        fetch_display_data(server_ip, server_port);
-    } else {
-        ESP_LOGW(TAG, "Server discovery failed.");
+	bool file_changed = false;
+	FileHandler fileHandler;
+	
+	char url[128];
+	snprintf(url, sizeof(url), "http://%s:%d/api/sync", server_ip, server_port);
+	
+	// 1. Build the JSON Payload
+	cJSON *root = cJSON_CreateObject();
+	cJSON_AddStringToObject(root, "mac", _get_mac_address());
+	
+	// Call scan_local_files() to populate "local_files" array
+    cJSON *local_files = fileHandler.generate_files_json(AppConfig::STORAGE_PATH);
+    cJSON_AddItemToObject(root, "local_files", local_files);
+
+    char *json_body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root); // Free the cJSON structure memory
+
+    if (!json_body) {
+        ESP_LOGE(TAG, "Failed to render JSON string");
+        return file_changed;
     }
-}
 
-char* ServerComm::get_image(const char *server_ip, int server_port)
-{
-    char url[128];
-    snprintf(url, sizeof(url), "http://%s:%d/api/image", server_ip, server_port);
+    ESP_LOGI(TAG, "Sending Sync Payload:\n%s", json_body);
 
-	// 1. Configure HTTP client
+    // 2. Configure HTTP Client
+    http_response_buffer_t response_buf = { .data = NULL, .len = 0 };
+
     esp_http_client_config_t config = {
         .url = url,
-        .timeout_ms = 10000,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 5000,
+        .event_handler = _http_event_handler,
+        .user_data = &response_buf,
     };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    // Set Headers
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+	_set_http_header(&client);
+
+    // Attach POST body string
+    esp_http_client_set_post_field(client, json_body, strlen(json_body));
+
+    // 4. Perform Request
+    esp_err_t err = esp_http_client_perform(client);
+
+    // Free the request JSON string buffer
+    free(json_body);
+
+	// parse the response from server
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        ESP_LOGI(TAG, "HTTP POST Status = %d, response length = %d", status_code, response_buf.len);
+
+        if (status_code == 200 && response_buf.data) {
+            // 5. Parse Server Response Diff JSON
+            cJSON *response_json = cJSON_Parse(response_buf.data);
+            if (response_json) {
+                
+                // Process 'delete' array
+                cJSON *delete_list = cJSON_GetObjectItem(response_json, "delete");
+                if (cJSON_IsArray(delete_list)) {
+                    cJSON *item = NULL;
+                    cJSON_ArrayForEach(item, delete_list) {
+						if (cJSON_IsString(item)) {
+							char path_to_del[128];
+							snprintf(path_to_del, sizeof(path_to_del), "%s/%s", AppConfig::STORAGE_PATH, item->valuestring);
+							ESP_LOGI(TAG, "Deleting old file: %s", path_to_del);
+							remove(path_to_del);
+							file_changed = true;
+						}
+                    }
+                }
+
+                // Process 'new' download list (to be downloaded sequentially)
+                cJSON *new_list = cJSON_GetObjectItem(response_json, "new");
+                if (cJSON_IsArray(new_list)) {
+                    cJSON *item = NULL;
+					
+                    cJSON_ArrayForEach(item, new_list) {
+                        cJSON *name = cJSON_GetObjectItem(item, "name");
+                        cJSON *url = cJSON_GetObjectItem(item, "url");
+                        if (cJSON_IsString(name) && cJSON_IsString(url)) {
+							ESP_LOGI(TAG, "Queued for download: %s from %s", name->valuestring, url->valuestring);
+							std::string filepath = get_image(server_ip, server_port, name->valuestring, url->valuestring);
+							if (!filepath.empty())
+								file_changed = true;
+                        }
+                    }
+                }
+
+                cJSON_Delete(response_json);
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "HTTP POST failed: %s", esp_err_to_name(err));
+    }
+
+    // Cleanup resources
+    if (response_buf.data) {
+        free(response_buf.data);
+    }
+    esp_http_client_cleanup(client);
+	return file_changed;
+}
+
+const std::string ServerComm::get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url)
+{
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d%s", server_ip, server_port, file_url);
+
+	// 1. Configure HTTP client
+    esp_http_client_config_t config = {};
+    config.url = url;
+	config.timeout_ms = 60000;
     esp_http_client_handle_t client = esp_http_client_init(&config);
 	
 	// 2. Attach MAC address header
-	esp_http_client_set_header(client, "x-device-mac", get_mac_address());
+	_set_http_header(&client);
 
 	// 3. Perform request
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
         esp_http_client_cleanup(client);
-        return NULL;
+        return "";
     }
 
     int content_length = esp_http_client_fetch_headers(client);
     if (content_length <= 0) {
         ESP_LOGE(TAG, "Invalid content length received");
         esp_http_client_cleanup(client);
-        return NULL;
+        return "";
     }
 
 	// 4. Store the incoming image data to storage (LittleFS)
-	char* filepath = "/data/image01.bin";
+	char filepath[40];
+	snprintf(filepath, sizeof(filepath), "%s/%s", AppConfig::STORAGE_PATH, filename);
+	ESP_LOGI(TAG, "File to store: %s", filepath);
     FILE *f = fopen(filepath, "wb");
     if (!f) {
         ESP_LOGE(TAG, "Failed to open LittleFS file for writing");
         esp_http_client_cleanup(client);
-        return NULL;
+        return "";
     }
 
     char buffer[1024];
@@ -250,6 +409,6 @@ char* ServerComm::get_image(const char *server_ip, int server_port)
     fclose(f);
     esp_http_client_cleanup(client);
 
-    ESP_LOGI(TAG, "Successfully saved %d bytes to /data/image01.bin", total_read);
+    ESP_LOGI(TAG, "Successfully saved %d bytes to %s", total_read, filepath);
     return filepath;
 }

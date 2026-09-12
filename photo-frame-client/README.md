@@ -28,7 +28,7 @@ TODO:
 			b. server compare the list with it's managed list and return the changes
 			{
 			  "new": [
-			    { "name": "photo03.bin", "url": "/api/images/photo03.bin" }
+			    { "name": "photo03.bin", "url": "/api/image/A1B2C3D4E5/photo03.bin" }
 			  ],
 			  "delete": [
 			    "photo01.bin"
