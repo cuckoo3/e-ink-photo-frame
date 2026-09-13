@@ -15,6 +15,7 @@ class DppEnrollee {
 		bool dpp_enrollee_init(wifi_config_t *wifi_config);
 		bool is_dpp_mode(void);
 		void sync_sntp_time(void);
+		void log_current_time(void);
 
 	private:
 		inline static bool s_is_dpp_mode = false;
@@ -30,7 +31,7 @@ class DppEnrollee {
 		 * @param event_id The specific event ID
 		 * @param event_data Pointer to event-specific data
 		 */
-		static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-		esp_err_t dpp_enrollee_bootstrap(void);
-		void start_dpp_flow(void);
+		static void _event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+		esp_err_t _dpp_enrollee_bootstrap(void);
+		void _start_dpp_flow(void);
 };

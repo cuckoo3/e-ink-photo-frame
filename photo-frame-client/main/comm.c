@@ -181,7 +181,7 @@ esp_err_t spiReceiveData(unsigned char *dataBuffer, unsigned long dataLength)
 
 }
 
-esp_err_t spiTransmitLargeData(unsigned char commandBuf, unsigned char *dataBuffer, unsigned long dataLength)
+esp_err_t spiTransmitLargeData(unsigned char commandBuf, const unsigned char *dataBuffer, unsigned long dataLength)
 {
 	esp_err_t status=0;
 	spi_transaction_t trans;

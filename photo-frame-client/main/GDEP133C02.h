@@ -79,13 +79,19 @@ __GDEP133C02_EXTERN__ void setPinCs(unsigned char csNumber, unsigned int setLeve
 __GDEP133C02_EXTERN__ void checkBusyHigh(void);
 __GDEP133C02_EXTERN__ void checkBusyLow(void);
 __GDEP133C02_EXTERN__ void initEPD(void);
-__GDEP133C02_EXTERN__ void writeEpd(unsigned char epdCommand, unsigned char *epdData, unsigned int epdDataLength);
+__GDEP133C02_EXTERN__ void writeEpd(unsigned char epdCommand, const unsigned char *epdData, unsigned int epdDataLength);
 __GDEP133C02_EXTERN__ void readEpd(unsigned char epdCommand, unsigned char *epdData, unsigned int epdDataLength);
 __GDEP133C02_EXTERN__ void writeEpdCommand(unsigned char epdCommand);
-__GDEP133C02_EXTERN__ void writeEpdData(unsigned char *epdData, unsigned int epdDataLength);
+__GDEP133C02_EXTERN__ void writeEpdData(const unsigned char *epdData, unsigned int epdDataLength);
 __GDEP133C02_EXTERN__ void epdDisplay(void);
 __GDEP133C02_EXTERN__ void epdDisplayColor(unsigned char colorSelect);
-__GDEP133C02_EXTERN__ void writeEpdImage(unsigned char csx, unsigned char const *imageData, unsigned long imageDataLength);
+/**
+ * @brief Sends framebuffer data to a specific driver IC (Master or Slave).
+ * @param csx CS pin index (0 for Master CS0, 1 for Slave CS1)
+ * @param imageData Pointer to display framebuffer
+ * @param imageDataLength Length of data in bytes
+ */
+__GDEP133C02_EXTERN__ void writeEpdImage(uint8_t csx, const unsigned char *imageData, unsigned long imageDataLength);
 __GDEP133C02_EXTERN__ unsigned char checkDriverICStatus(void);
 __GDEP133C02_EXTERN__ char partialWindowUpdateWithImageData(unsigned char csx, unsigned char const *imageData, unsigned long dataSize, unsigned int xStart, unsigned int yStart, unsigned int xPixel, unsigned int yLine, unsigned char displayEnable);
 __GDEP133C02_EXTERN__ char partialWindowUpdateWithoutImageData(unsigned char csx, unsigned int xStart, unsigned int yStart, unsigned int xPixel, unsigned int yLine, unsigned char epdDisplayEnable);

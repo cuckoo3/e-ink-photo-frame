@@ -15,7 +15,7 @@ class FileHandler {
 
 		cJSON* generate_files_json(const char* mount_point);
 		int rebuild_playlist_index(const char* mount_point, char* current_filename);
-		bool get_current_playlist_file(const char* mount_point, size_t current_index, char* current_filename);
+		bool get_current_playlist_file(const char* mount_point, size_t current_index, char* current_filename, size_t* out_total_count);
 	
 	private:
 		bool _get_file_md5(const char *filepath, char *output_hex_33byte);

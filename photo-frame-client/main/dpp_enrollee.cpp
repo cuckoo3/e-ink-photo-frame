@@ -35,7 +35,7 @@ inline static constexpr uint32_t DPP_CONNECT_FAIL_BIT = BIT1;
 inline static constexpr uint32_t DPP_AUTH_FAIL_BIT    = BIT2;
 inline static constexpr std::size_t WIFI_MAX_RETRY_NUM = 3;
 
-void DppEnrollee::event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+void DppEnrollee::_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     WifiQrcode wifiQrcode;
 	
@@ -123,7 +123,7 @@ void DppEnrollee::event_handler(void *arg, esp_event_base_t event_base, int32_t 
     }
 }
 
-esp_err_t DppEnrollee::dpp_enrollee_bootstrap(void)
+esp_err_t DppEnrollee::_dpp_enrollee_bootstrap(void)
 {
     esp_err_t ret;
     size_t pkey_len = strlen(CONFIG_ESP_DPP_BOOTSTRAPPING_KEY);
@@ -145,7 +145,7 @@ esp_err_t DppEnrollee::dpp_enrollee_bootstrap(void)
             ESP_LOGE(TAG, "Failed to allocate memory for key");
             return ESP_ERR_NO_MEM;
         }
-        sprintf(key, "%s%s%s", prefix, CONFIG_ESP_DPP_BOOTSTRAPPING_KEY, postfix);
+        snprintf(key, key_len, "%s%s%s", prefix, CONFIG_ESP_DPP_BOOTSTRAPPING_KEY, postfix);
         /* Currently only supported method is QR Code */
 	    ret = esp_supp_dpp_bootstrap_gen(CONFIG_ESP_DPP_LISTEN_CHANNEL_LIST, DPP_BOOTSTRAP_QR_CODE, key, CONFIG_ESP_DPP_DEVICE_INFO);
         free(key);
@@ -156,14 +156,14 @@ esp_err_t DppEnrollee::dpp_enrollee_bootstrap(void)
     return ret;
 }
 
-void DppEnrollee::start_dpp_flow(void)
+void DppEnrollee::_start_dpp_flow(void)
 {
     s_is_dpp_mode = true;
     s_retry_num = 0;
     
     ESP_LOGI(TAG, "Initializing DPP Enrollee and displaying QR Code...");
     ESP_ERROR_CHECK(esp_supp_dpp_init(NULL));
-    ESP_ERROR_CHECK(dpp_enrollee_bootstrap());
+    ESP_ERROR_CHECK(_dpp_enrollee_bootstrap());
     
     // Stop Wi-Fi state machine and restart it in DPP listening mode
     esp_wifi_stop();
@@ -190,8 +190,8 @@ bool DppEnrollee::dpp_enrollee_init(wifi_config_t *wifi_config)
 	
     esp_netif_create_default_wifi_sta();
 
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &_event_handler, NULL));
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -212,7 +212,7 @@ bool DppEnrollee::dpp_enrollee_init(wifi_config_t *wifi_config)
         ESP_ERROR_CHECK(esp_wifi_start());
     } else {
         ESP_LOGW(TAG, "No NVS credentials found. Starting DPP mode...");
-        start_dpp_flow();
+        _start_dpp_flow();
     }
 
     bool connection_successful = false;
@@ -243,7 +243,7 @@ bool DppEnrollee::dpp_enrollee_init(wifi_config_t *wifi_config)
             // NVS connection failed! Fallback to DPP if time remains
             if (!s_is_dpp_mode) {
                 ESP_LOGW(TAG, "NVS connection failed! Switching to DPP mode and rendering QR code...");
-                start_dpp_flow(); 
+                _start_dpp_flow(); 
             } else {
                 ESP_LOGE(TAG, "DPP connection attempt failed. Re-listening...");
                 s_retry_num = 0;
@@ -277,7 +277,7 @@ bool DppEnrollee::is_dpp_mode(void)
 }
 
 void DppEnrollee::sync_sntp_time(void) {
-    printf("Initializing SNTP...\n");
+	ESP_LOGI(TAG, "Initializing SNTP...");
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_init();
@@ -292,9 +292,20 @@ void DppEnrollee::sync_sntp_time(void) {
 	tzset();
 
     // Print current time
-    time_t now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    ESP_LOGI(TAG, "Current time synced: %s", asctime(&timeinfo));
+    log_current_time();
+}
+
+void DppEnrollee::log_current_time(void)
+{
+	time_t now;
+	struct tm timeinfo;
+	time(&now);
+	localtime_r(&now, &timeinfo);
+
+	char time_str[32];
+	asctime_r(&timeinfo, time_str);
+	// Strip trailing newline character added by asctime_r for clean ESP_LOG output
+	time_str[strcspn(time_str, "\r\n")] = '\0';
+
+	ESP_LOGI(TAG, "Current time: %s", time_str);
 }

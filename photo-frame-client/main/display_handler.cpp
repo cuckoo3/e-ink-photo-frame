@@ -23,28 +23,40 @@ void DisplayHandler::init_display()
 	ESP_LOGI(TAG, "Initiate e-ink display done");
 }
 
-void DisplayHandler::clear_screen_task(void *pvParameters)
+void DisplayHandler::_clear_screen_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Async screen clear starting...");
     epdDisplayColor(WHITE); // Runs in its own thread, blocking only this task
     ESP_LOGI(TAG, "Async screen clear complete.");
     
-    // Self-terminate task when finished
-    vTaskDelete(NULL);
+	// Clear handle before task termination
+	TaskHandle_t local_handle = s_clear_screen_task_handle;
+	s_clear_screen_task_handle = nullptr;
+	
+	vTaskDelete(local_handle);
 }
 
 // Public non-blocking function
 void DisplayHandler::clearScreenAsync(void)
 {
+	// Prevent spawning duplicate tasks if one is already running
+    if (s_clear_screen_task_handle != nullptr) {
+        ESP_LOGW(TAG, "Screen clear task already running, skipping...");
+        return;
+    }
     // Spawns the task and returns immediately!
-    xTaskCreate(
-        clear_screen_task,   // Task function
+    BaseType_t ret =xTaskCreate(
+        _clear_screen_task,   // Task function
         "clear_screen_task", // Name for debugging
         4096,                // Stack size in words
         NULL,                // Parameter
         5,                   // Priority
-        NULL                 // Task handle (not needed)
+		&s_clear_screen_task_handle      // Task handle (not needed)
     );
+	if (ret != pdPASS) {
+		ESP_LOGE(TAG, "Failed to create clear_screen_task");
+		s_clear_screen_task_handle = nullptr;
+    }
 }
 
 void DisplayHandler::display_image(const char *filepath)

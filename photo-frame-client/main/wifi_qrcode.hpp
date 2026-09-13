@@ -23,5 +23,5 @@ class WifiQrcode {
 		 *
 		 * @param qrcode Handle to the generated QR code
 		 */
-		static void epd_qrcode_display_cb(esp_qrcode_handle_t qrcode);
+		static void _epd_qrcode_display_cb(esp_qrcode_handle_t qrcode);
 };

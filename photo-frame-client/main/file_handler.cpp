@@ -13,11 +13,12 @@
 #include <dirent.h>
 #include "cJSON.h"
 #include "mbedtls/md5.h"
+#include "esp_log.h"
 
 #include "file_handler.hpp"
 #include "app_config.hpp"
 
-constexpr size_t MAX_FILENAME_LEN = 32;
+inline static constexpr char TAG[] = "FILE_HANDLER";
 
 bool FileHandler::_get_file_md5(const char *filepath, char *output_hex_33byte)
 {
@@ -53,9 +54,14 @@ bool FileHandler::_get_file_md5(const char *filepath, char *output_hex_33byte)
 cJSON* FileHandler::generate_files_json(const char* mount_point)
 {
     cJSON *file_array = cJSON_CreateArray();
-    DIR *dir = opendir(AppConfig::STORAGE_PATH);
+	if (!file_array) {
+	    ESP_LOGE(TAG, "Failed to allocate cJSON array");
+	    return NULL;
+	}
+
+    DIR *dir = opendir(mount_point);
     if (!dir) {
-        printf("Failed to open directory: %s\n", mount_point);
+        ESP_LOGE(TAG, "Failed to open directory: %s", mount_point);
         return file_array;
     }
 
@@ -63,19 +69,37 @@ cJSON* FileHandler::generate_files_json(const char* mount_point)
     while ((entry = readdir(dir)) != NULL) {
         // ignore non .bin file
         if (entry->d_type == DT_REG && strstr(entry->d_name, ".bin")) {
+			// Check filename bounds against configuration limits
+            size_t name_len = strlen(entry->d_name);
+            if (name_len >= AppConfig::MAX_FILENAME_LEN) {
+                ESP_LOGW(TAG, "Skipping file exceeding length limit (%zu >= %d): %s",  name_len, AppConfig::MAX_FILENAME_LEN, entry->d_name);
+                continue;
+            }
+			
             char filepath[257];
-            snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
+            int ret = snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
+			if (ret < 0 || ret >= (int)sizeof(filepath)) {
+                ESP_LOGE(TAG, "File path truncated, skipping: %s", entry->d_name);
+                continue;
+            }
 
             struct stat st;
             if (stat(filepath, &st) == 0) {
                 cJSON *file_obj = cJSON_CreateObject();
-                cJSON_AddStringToObject(file_obj, "name", entry->d_name);
+				if (!file_obj) {
+                    ESP_LOGE(TAG, "Failed to allocate cJSON object for file: %s", entry->d_name);
+                    continue;
+                }
+				cJSON_AddStringToObject(file_obj, "name", entry->d_name);
 				cJSON_AddNumberToObject(file_obj, "size", st.st_size);
 
                 // calculate MD5
-                 char md5[33];
-                 _get_file_md5(filepath, md5);
-                 cJSON_AddStringToObject(file_obj, "md5", md5);
+                char md5[33];
+				if (_get_file_md5(filepath, md5)) {
+					cJSON_AddStringToObject(file_obj, "md5", md5);
+				} else {
+				    cJSON_AddStringToObject(file_obj, "md5", "");
+				}
 
                 cJSON_AddItemToArray(file_array, file_obj);
             }
@@ -97,10 +121,21 @@ const std::vector<FileHandler::FileInfo> FileHandler::_scan_local_files_sorted(c
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        // Filter for files containing .bin
-        if (strstr(entry->d_name, ".bin") != NULL) {
-            char filepath[300];
-            snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
+        // Filter for regular files containing .bin extension
+        if (entry->d_type == DT_REG && strstr(entry->d_name, ".bin") != NULL) {
+			size_t name_len = strlen(entry->d_name);
+            if (name_len >= AppConfig::MAX_FILENAME_LEN) {
+                ESP_LOGW(TAG, "Skipping file exceeding length limit (%zu >= %d): %s", 
+                         name_len, AppConfig::MAX_FILENAME_LEN, entry->d_name);
+                continue;
+            }
+			
+            char filepath[257];
+            int ret =snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
+			if (ret < 0 || ret >= (int)sizeof(filepath)) {
+                ESP_LOGE(TAG, "File path truncated, skipping: %s", entry->d_name);
+                continue;
+            }
 
             struct stat st;
             if (stat(filepath, &st) == 0) {
@@ -159,32 +194,43 @@ int FileHandler::rebuild_playlist_index(const char* mount_point, char* current_f
     return static_cast<int>(sorted_files.size());
 }
 
-bool FileHandler::get_current_playlist_file(const char* mount_point, size_t current_index, char* current_filename)
+bool FileHandler::get_current_playlist_file(const char* mount_point, size_t current_index, char* current_filename, size_t* out_total_count)
 {
     if (!current_filename) return false;
 
     char idx_path[64];
     snprintf(idx_path, sizeof(idx_path), "%s/playlist.idx", mount_point);
 
-    FILE* f = fopen(idx_path, "rb"); // Open in binary read mode
+    FILE* f = fopen(idx_path, "rb");
     if (!f) {
+        if (out_total_count) *out_total_count = 0;
         return false;
     }
 
-    // 1. Calculate byte offset for current_index
+    // 1. Calculate total records by checking total file size (O(1))
+    if (fseek(f, 0, SEEK_END) == 0) {
+        long file_size = ftell(f);
+        if (out_total_count && AppConfig::MAX_FILENAME_LEN > 0) {
+            *out_total_count = (size_t)(file_size / AppConfig::MAX_FILENAME_LEN);
+        }
+    } else if (out_total_count) {
+        *out_total_count = 0;
+    }
+
+    // 2. Calculate byte offset for target record
     long offset = (long)(current_index * AppConfig::MAX_FILENAME_LEN);
 
-    // 2. Seek directly to the target record (O(1) direct access)
+    // 3. Seek directly to target record
     if (fseek(f, offset, SEEK_SET) != 0) {
         fclose(f); // Index out of bounds or read error
         return false;
     }
 
-    // 3. Read the 32-byte record into out_filename
+    // 4. Read record
     size_t bytes_read = fread(current_filename, 1, AppConfig::MAX_FILENAME_LEN, f);
     fclose(f);
 
-    // 4. Ensure safety null-termination
+    // 5. Ensure safety null-termination
     current_filename[AppConfig::MAX_FILENAME_LEN - 1] = '\0';
 
     return (bytes_read == AppConfig::MAX_FILENAME_LEN);

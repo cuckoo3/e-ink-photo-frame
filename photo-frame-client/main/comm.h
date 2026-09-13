@@ -24,7 +24,7 @@ __COMM_EXTERN__ void delayms(unsigned int delayTime);
 __COMM_EXTERN__ esp_err_t spiTransmitCommand(unsigned char commandBuf);
 __COMM_EXTERN__ esp_err_t spiTransmitData(unsigned char *dataBuffer, unsigned long dataLength);
 __COMM_EXTERN__ esp_err_t spiReceiveData(unsigned char *dataBuffer, unsigned long dataLength);
-__COMM_EXTERN__ esp_err_t spiTransmitLargeData(unsigned char commandBuf, unsigned char *dataBuffer, unsigned long dataLength);
+__COMM_EXTERN__ esp_err_t spiTransmitLargeData(unsigned char commandBuf, const unsigned char *dataBuffer, unsigned long dataLength);
 __COMM_EXTERN__ esp_err_t spiTransmit(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength);
 __COMM_EXTERN__ esp_err_t spiReceive(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength);
 __COMM_EXTERN__ void setGpioLevel(unsigned char pinNumber, unsigned char voltageLevel);

@@ -19,7 +19,7 @@ inline static constexpr std::size_t SCREEN_HEIGHT = 1600;
 inline static constexpr std::size_t QR_SCALE = 8;
 
 /* Custom callback function invoked by esp_qrcode_generate to render onto EPD */
-void WifiQrcode::epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
+void WifiQrcode::_epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
 {
     uint16_t qrcode_size = esp_qrcode_get_size(qrcode);
 
@@ -31,14 +31,18 @@ void WifiQrcode::epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
      *   2 pixels per byte
      */
     uint32_t qr_pixel_size = qrcode_size * QR_SCALE;
-
     uint32_t width_bytes = (qr_pixel_size + 1) / 2;
-
     uint32_t final_size = width_bytes * qr_pixel_size;
+	
+	if (qr_pixel_size > SCREEN_HALF_WIDTH || qr_pixel_size > SCREEN_HEIGHT) {
+		ESP_LOGE(TAG, "QR code dimension (%lu x %lu) exceeds display limits", 
+		                 (unsigned long)qr_pixel_size, (unsigned long)qr_pixel_size);
+	    return;
+	}
 
     ESP_LOGI(TAG, "QR size=%u x %u, buffer=%lu bytes", qr_pixel_size, qr_pixel_size, (unsigned long)final_size);
 
-    uint8_t *final_buffer = (uint8_t *)malloc(final_size);
+	uint8_t *final_buffer = static_cast<uint8_t *>(malloc(final_size));
 
     if (final_buffer == NULL) {
         ESP_LOGE(TAG, "Failed to allocate QR buffer: %lu bytes", (unsigned long)final_size);
@@ -76,14 +80,9 @@ void WifiQrcode::epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
 					 uint32_t rotated_x = qr_pixel_size - 1 - px;
 					 uint32_t rotated_y = qr_pixel_size - 1 - py;
 
-					 // E6 data is stored right-to-left
-					 uint32_t reversed_x = qr_pixel_size - 1 - rotated_x;
+					 uint32_t byte_index = rotated_y * width_bytes + (px / 2);
 
-					 uint32_t byte_index =
-					     rotated_y * width_bytes +
-					     (reversed_x / 2);
-
-					 if ((reversed_x & 1) == 0) {
+					 if ((px & 1) == 0) {
 					     // High nibble
 					     final_buffer[byte_index] &= 0x0F;
 					     final_buffer[byte_index] |= black << 4;
@@ -98,43 +97,21 @@ void WifiQrcode::epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
 	 }
 
     /*
-     * E6 logical area for one CS:
-     *
-     *   SCREEN_HALF_WIDTH × SCREEN_HEIGHT
-     */
-    unsigned int driver_xPixel = qr_pixel_size;
-    unsigned int driver_yLine  = qr_pixel_size;
-
-    if (driver_xPixel > SCREEN_HALF_WIDTH || driver_yLine > SCREEN_HEIGHT) {
-
-        ESP_LOGE(TAG, "QR too large: %u x %u", driver_xPixel, driver_yLine);
-
-        free(final_buffer);
-        return;
-    }
-
-    /*
      * Center horizontally.
      *
      * xStart must be divisible by 4.
      */
-    unsigned int driver_xStart =
-        ((SCREEN_HALF_WIDTH - driver_xPixel) / 2) & ~0x03;
+    unsigned int driver_xStart = ((SCREEN_HALF_WIDTH - qr_pixel_size) / 2) & ~0x03;
 
     /*
      * Center vertically in SCREEN_HEIGHT.
      *
      * yStart must be even.
      */
-    unsigned int driver_yStart =
-        ((SCREEN_HEIGHT - driver_yLine) / 2) & ~0x01;
+    unsigned int driver_yStart = ((SCREEN_HEIGHT - qr_pixel_size) / 2) & ~0x01;
 
-    ESP_LOGI(TAG,
-             "QR window: x=%u y=%u w=%u h=%u",
-             driver_xStart,
-             driver_yStart,
-             driver_xPixel,
-             driver_yLine);
+    ESP_LOGI(TAG, "QR window: x=%u y=%u w=%lu h=%lu",
+             driver_xStart, driver_yStart, (unsigned long)qr_pixel_size, (unsigned long)qr_pixel_size);
 
     /*
      * White screen.
@@ -150,8 +127,8 @@ void WifiQrcode::epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
         final_size,
         driver_xStart,
         driver_yStart,
-        driver_xPixel,
-        driver_yLine,
+        qr_pixel_size,
+        qr_pixel_size,
         1
     );
 
@@ -161,7 +138,7 @@ void WifiQrcode::epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
 /* Blocking synchronous function to render QR code on EPD */
 void WifiQrcode::show_epd_qr_code(const char *uri_string)
 {
-    if (uri_string == NULL) {
+    if (uri_string == nullptr) {
         ESP_LOGE(TAG, "URI string is NULL!");
         return;
     }
@@ -170,7 +147,7 @@ void WifiQrcode::show_epd_qr_code(const char *uri_string)
 
     // 2. Configure Espressif QR Code generator
     esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
-    cfg.display_func = epd_qrcode_display_cb;
+    cfg.display_func = _epd_qrcode_display_cb;
     cfg.max_qrcode_version = 10;
     cfg.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
 

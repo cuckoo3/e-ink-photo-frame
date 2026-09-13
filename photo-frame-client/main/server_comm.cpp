@@ -19,28 +19,28 @@ inline static constexpr char TAG[] = "SERVER_COMM";
 // Retry configuration
 inline static constexpr int MAX_DISCOVERY_RETRIES = 5;
 
-
 const char * ServerComm::_get_mac_address(void)
 {
 	if (mac_str != nullptr) {
 		return mac_str; // Return cached MAC address if already retrieved
 	}
 	else {
+	    static char mac_buffer[18] = {0};
 		uint8_t mac[6];
-	    esp_efuse_mac_get_default(mac);
-	
-	    mac_str = new char[18];
-	    snprintf(mac_str, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
+
+		esp_efuse_mac_get_default(mac);
+	    snprintf(mac_buffer, sizeof(mac_buffer), "%02X:%02X:%02X:%02X:%02X:%02X",
 	             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	
+		mac_str = mac_buffer;
 	    ESP_LOGI(TAG, "Device MAC: %s", mac_str);
 		return mac_str;
 	}
 }
 
-void ServerComm::_set_http_header(const esp_http_client_handle_t *client_ptr)
+void ServerComm::_set_http_header(const esp_http_client_handle_t client)
 {
-	esp_http_client_set_header(*client_ptr, "x-device-mac", _get_mac_address());
+	esp_http_client_set_header(client, "x-device-mac", _get_mac_address());
 }
 
 // =========================================================================
@@ -137,6 +137,11 @@ esp_err_t ServerComm::_http_event_handler(esp_http_client_event_t *evt) {
         char *new_ptr = (char *)realloc(buf->data, buf->len + evt->data_len + 1);
         if (new_ptr == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for HTTP response");
+			
+			if (buf->data != NULL)
+                free(buf->data);
+            buf->data = NULL;
+            buf->len = 0;
             return ESP_FAIL;
         }
         buf->data = new_ptr;
@@ -288,7 +293,7 @@ bool ServerComm::sync_image_list(const char *server_ip, const int server_port)
 
     // Set Headers
     esp_http_client_set_header(client, "Content-Type", "application/json");
-	_set_http_header(&client);
+	_set_http_header(client);
 
     // Attach POST body string
     esp_http_client_set_post_field(client, json_body, strlen(json_body));
@@ -368,7 +373,7 @@ const std::string ServerComm::get_image(const char *server_ip, const int server_
     esp_http_client_handle_t client = esp_http_client_init(&config);
 	
 	// 2. Attach MAC address header
-	_set_http_header(&client);
+	_set_http_header(client);
 
 	// 3. Perform request
     esp_err_t err = esp_http_client_open(client, 0);

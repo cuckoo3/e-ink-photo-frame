@@ -18,13 +18,14 @@ extern "C" {
 
 inline static constexpr char TAG[] ="MAIN";
 
+// Sleep duration: 4 hours in microseconds
+//inline static constexpr uint64_t SLEEP_DURATION_US = 4ULL * 3600ULL * 1000000ULL;	// Sleep duration: 4 hours in microseconds
+inline static constexpr uint64_t SLEEP_DURATION_US = 60 * 1000000ULL;					// sleep 1 minutes for testing
+
 DisplayHandler displayHandler;
 wifi_config_t esp32_wifi_config;
 esp_netif_ip_info_t ip_info;
 ServerComm serverComm;
-
-// Sleep configuration for 4 hours (4 * 3600 seconds * 1,000,000 microseconds)
-uint64_t sleep_duration_us = 4ULL * 3600ULL * 1000000ULL;
 
 // variables that stored in RTC memory which will not cleared in deep sleep 
 RTC_DATA_ATTR char server_ip_str[16] = {0};
@@ -59,14 +60,6 @@ void init_littlefs(void)
     ESP_LOGI(TAG, "Partition size: Total: %d KB, Used: %d KB", total / 1024, used / 1024);
 }
 
-void print_current_time(void) {
-	time_t now;
-	struct tm timeinfo;
-	time(&now);
-	localtime_r(&now, &timeinfo);
-	ESP_LOGI(TAG, "Current time synced: %s", asctime(&timeinfo));
-}
-
 extern "C" void app_main(void)
 {
 	DppEnrollee dppEnrolle;
@@ -85,14 +78,17 @@ extern "C" void app_main(void)
 	
 	displayHandler.init_display();
 	
-	// 1. Create event loop first
-	ESP_ERROR_CHECK(esp_event_loop_create_default());
+	// 3. Initialize default event loop cleanly
+	esp_err_t event_err = esp_event_loop_create_default();
+    if (event_err != ESP_OK && event_err != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(event_err);
+    }
 
     bool is_connected = dppEnrolle.dpp_enrollee_init(&esp32_wifi_config); 
 
     if (!is_connected) {
         ESP_LOGE(TAG, "Failed to establish Wi-Fi within 5 minutes. Entering deep sleep...");
-        // Option: Put ESP32 into deep sleep or show an error screen on EPD
+        esp_deep_sleep(SLEEP_DURATION_US);
         return;
     }
 
@@ -116,7 +112,7 @@ extern "C" void app_main(void)
 			ESP_LOGI(TAG, "No file changes. Fetching current file from playlist.idx...");
 
             // 1. Fetch file name at current_playlist_index directly from playlist.idx (O(1) read)
-            if (!fileHandler.get_current_playlist_file(AppConfig::STORAGE_PATH, current_playlist_index, current_filename)) {
+            if (!fileHandler.get_current_playlist_file(AppConfig::STORAGE_PATH, current_playlist_index, current_filename, &total_playlist_count)) {
                 ESP_LOGE(TAG, "Failed to read index %zu from playlist.idx. Triggering emergency rebuild...", current_playlist_index);
 
                 // Fallback: If playlist.idx is missing or corrupted, scan and rebuild on the fly
@@ -142,17 +138,9 @@ extern "C" void app_main(void)
         }
 	}
 	
-	print_current_time();
+	dppEnrolle.log_current_time();
 	ESP_LOGI(TAG, "Enter deep sleep");
-	esp_deep_sleep(60 * 1000000ULL);	// sleep 1 minutes for testing
-
-//	char* filepath = serverComm.get_image(server_ip_str, server_http_port, "/api/image/A8A1596BF383/image.bin");
-//	if (filepath == NULL) {
-//		ESP_LOGE(TAG, "Failed to retrieve image from server.");
-//		return;
-//	}
-//	ESP_LOGI(TAG, "Image stored successfully. filepath: %s", filepath);
-//	displayHandler.display_image(filepath);
+	esp_deep_sleep(SLEEP_DURATION_US);	// sleep 1 minutes for testing
 }
 
 

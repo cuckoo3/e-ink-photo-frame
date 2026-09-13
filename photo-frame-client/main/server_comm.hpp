@@ -34,6 +34,6 @@ class ServerComm {
 		
 		const char * _get_mac_address(void);
 		
-		void _set_http_header(const esp_http_client_handle_t *client_ptr);
+		void _set_http_header(const esp_http_client_handle_t client);
 		
 };

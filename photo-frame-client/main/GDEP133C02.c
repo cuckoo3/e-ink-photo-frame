@@ -7,6 +7,10 @@
 #include "pindefine.h"
 #include "comm.h"
 #include "status.h"
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+
+static const char *TAG = "GDEP133C02";
 
 const unsigned char spiCsPin[2] = {
 		SPI_CS0, SPI_CS1
@@ -106,9 +110,9 @@ void epdHardwareReset(void)
 	delayms(20);
 }
 
-void writeEpd(unsigned char epdCommand, unsigned char *epdData, unsigned int epdDataLength)
+void writeEpd(unsigned char epdCommand, const unsigned char *epdData, unsigned int epdDataLength)
 {
-	spiTransmit(epdCommand, epdData, epdDataLength);
+	spiTransmit(epdCommand, (unsigned char *)epdData, epdDataLength);
 }
 
 void readEpd(unsigned char epdCommand, unsigned char *epdData, unsigned int epdDataLength)
@@ -121,7 +125,7 @@ void writeEpdCommand(unsigned char epdCommand)
 	spiTransmitCommand(epdCommand);
 }
 
-void writeEpdData(unsigned char *epdData, unsigned int epdDataLength)
+void writeEpdData(const unsigned char *epdData, unsigned int epdDataLength)
 {
 	spiTransmitData(epdData, epdDataLength);
 }
@@ -196,9 +200,7 @@ void initEPD(void)
 	writeEpd(TFT_VCOM_POWER, TFT_VCOM_POWER_V, sizeof(TFT_VCOM_POWER_V));
 	setPinCsAll(GPIO_HIGH);
 
-#if SHOW_LOG
-    printf("initEPD() has been executed. \r\n");
-#endif
+    ESP_LOGI(TAG, "initEPD() has been executed. \r\n");
 }
 
 unsigned char checkDriverICStatus(void)
@@ -212,20 +214,14 @@ unsigned char checkDriverICStatus(void)
 		setPinCs(csx,GPIO_LOW);
 		readEpd(0xF2, dataBuf, sizeof(dataBuf));
 		setPinCs(csx,GPIO_HIGH);
-#if SHOW_LOG
-		printf("Driver IC [%d] = 0x%02X 0x%02X 0x%02X \r\n", csx, dataBuf[0], dataBuf[1], dataBuf[2]);
-#endif
+		ESP_LOGI(TAG, "Driver IC [%d] = 0x%02X 0x%02X 0x%02X", csx, dataBuf[0], dataBuf[1], dataBuf[2]);
 		if((dataBuf[0] & 0x01) == 0x01)
 		{
-#if SHOW_LOG
-			printf("Driver IC [%d] is ready. \r\n",csx);
-#endif
+			ESP_LOGI(TAG, "Driver IC [%d] is ready.",csx);
 		}
 		else
 		{
-#if SHOW_LOG
-			printf("Driver IC [%d] did not reply. \r\n",csx);
-#endif
+			ESP_LOGE(TAG, "Driver IC [%d] did not reply.",csx);
 			status = ERROR;
 		}
 
@@ -236,34 +232,22 @@ unsigned char checkDriverICStatus(void)
 
 void epdDisplay(void)
 {
-
-#if SHOW_LOG
-    printf("Write PON \r\n");
-#endif
 	setPinCsAll(GPIO_LOW);
 	writeEpdCommand(PON);
 	checkBusyHigh();
 	setPinCsAll(GPIO_HIGH);
 
-#if SHOW_LOG
-	printf("Write DRF \r\n");
-#endif
 	setPinCsAll(GPIO_LOW);
 	delayms(30);
 	writeEpd(DRF, DRF_V, sizeof(DRF_V));
 	checkBusyHigh();
 	setPinCsAll(GPIO_HIGH);
 
-#if SHOW_LOG
-	printf("Write POF \r\n");
-#endif
 	setPinCsAll(GPIO_LOW);
 	writeEpd(POF, POF_V, sizeof(POF_V));
 	checkBusyHigh();
 	setPinCsAll(GPIO_HIGH);
-#if SHOW_LOG
-	printf("Display Done!! \r\n");
-#endif
+	ESP_LOGI(TAG, "Display Done!! \r\n");
 }
 
 void epdDisplayColor(unsigned char colorSelect){
@@ -282,9 +266,7 @@ void epdDisplayColor(unsigned char colorSelect){
 
     epdDisplay();
 
-#if SHOW_LOG
-    printf("Display color complete. \r\n");
-#endif
+    ESP_LOGI(TAG, "Display color complete. \r\n");
 }
 
 
@@ -294,17 +276,20 @@ void epdDisplayColor(unsigned char colorSelect){
 #define FIRST_PACK_SIZE 480000 // First data packet size (bytes)
 #define TOTAL_IMAGE_SIZE 960000 // Total image data size (bytes)
 
-void writeEpdImage(unsigned char csx, unsigned char const *imageData, unsigned long imageDataLength)
+void writeEpdImage(uint8_t csx, const unsigned char *imageData, unsigned long imageDataLength)
 {
-
-	setPinCs(csx,GPIO_LOW);
-	spiTransmitLargeData(DTM, imageData, imageDataLength);
-	setPinCs(csx,GPIO_HIGH);
-
-#if SHOW_LOG
-	printf("Writing data is completed. \r\n");
-#endif
-
+    // Deselect all CS pins
+    setPinCsAll(GPIO_HIGH);
+    
+    // Select target driver IC (0 = Master CS0, 1 = Slave CS1)
+    setPinCs(csx, GPIO_LOW);
+    
+    // Stream large image framebuffer using DMA bulk transmit
+    spiTransmitLargeData(DTM, (unsigned char *)imageData, imageDataLength);
+    
+    // Deselect CS pin
+    setPinCs(csx, GPIO_HIGH);
+	ESP_LOGI(TAG, "Writing data is completed.");
 }
 
 char partialWindowUpdateWithImageData(unsigned char csx, unsigned char const *imageData, unsigned long imageDataLength,
@@ -319,63 +304,37 @@ char partialWindowUpdateWithImageData(unsigned char csx, unsigned char const *im
 	VRST = yStart / 2;
 	VRED = (yStart + yLine) / 2 - 1; // The range is 0 ~ 799 (double is 1600)
 
-#if SHOW_LOG
-	printf("csx = %d ; HRST = %d ; HRED = %d ; VRST = %d ; VRED = %d \r\n",csx, HRST, HRED, VRST, VRED);
-#endif
+	ESP_LOGI(TAG, "csx = %d ; HRST = %d ; HRED = %d ; VRST = %d ; VRED = %d",csx, HRST, HRED, VRST, VRED);
 
 	// HRST[10:0] = 8n (n = 0,1,2…)
 	if (HRST % 8 != 0){
 		status = -1;
-#if SHOW_LOG
-		printf("status = -1 ; There is a problem with xStart. \r\n");
-#endif
 	}
 	// HRED[10:0] = 8m+3 (m = 4,5,6…)
 	else if ((HRED - 7) % 8 != 0) {
 		status = -2;
-#if SHOW_LOG
-		printf("status = -2 ; There is a problem with xPixel. \r\n");
-#endif
 	}
 	//  xStart <= 584 ; xPixel <= 600
 	else if ((xStart > 584) | (xPixel > 600)) {
 		status = -3;
-#if SHOW_LOG
-		printf("status = -3 ; xStart or xPixel is over range. \r\n");
-#endif
 	}
 	// HRED - HRST + 1 >= 32 & HRED + 1 <= 1200
 	else if ((HRED - HRST + 1 < 32) | (HRED + 1 > 1200)){
 		status = -4;
-#if SHOW_LOG
-		printf("status = -4 ; There is a problem with xStart & xPixel. \r\n");
-#endif
 	}
 	else if ((yStart + yLine) % 2 != 0){
 		status = -5;
-#if SHOW_LOG
-		printf("status = -5 ; yStart + yLine must be an even number. \r\n");
-#endif
 	}
 	// yStart <= 1596 ; yLine <= 1600
 	else if ((yStart > 1596) | (yLine > 1600)) {
 		status = -6;
-#if SHOW_LOG
-		printf("status = -6 ; yStart or yLine is over range. \r\n");
-#endif
 	}
 	//VRST - VRED + 1 > 0 & VRED + 1 <= 800
 	else if (((int)(VRED - VRST) + 1 <= 0) | (VRED + 1 > 800)){
 		status = -7;
-#if SHOW_LOG
-		printf("status = -7 ; There is a problem with yStart & yLine. \r\n");
-#endif
 	}
 	else if(csx > 1){
 		status = -8;
-#if SHOW_LOG
-		printf("status = -8 ; There is a problem with cxs. \r\n");
-#endif
 	}
 	else
 	{
@@ -407,9 +366,7 @@ char partialWindowUpdateWithImageData(unsigned char csx, unsigned char const *im
 	if(status != DONE)
 	{
 		partialWindowUpdateStatus = ERROR;
-#if SHOW_LOG
-		printf("partialWindowUpdateStatus = ERROR \r\n");
-#endif
+		ESP_LOGE(TAG, "partialWindowUpdateStatus = ERROR");
 	}
 
 	if(epdDisplayEnable)
@@ -436,71 +393,43 @@ char  partialWindowUpdateWithoutImageData(unsigned char csx, unsigned int xStart
 	 unsigned int xPixel, unsigned int yLine, unsigned char epdDisplayEnable)
 {
 	unsigned char status = DONE;
-	unsigned int HRST, HRED, VRST, VRED;
+	unsigned int HRST = xStart * 2;
+	unsigned int HRED = (xStart + xPixel) * 2 - 1;
+	unsigned int VRST = yStart / 2;
+	unsigned int VRED = (yStart + yLine) / 2 - 1;
 	unsigned char partialWindowData[9];
 
-	HRST = xStart * 2;
-	HRED = (xStart + xPixel) * 2 - 1; // The range is 0 ~ 1199
-	VRST = yStart / 2;
-	VRED = (yStart + yLine) / 2 - 1; // The range is 0 ~ 799
-
-#if SHOW_LOG
-	printf("csx = %d ; HRST = %d ; HRED = %d ; VRST = %d ; VRED = %d \r\n",csx, HRST, HRED, VRST, VRED);
-#endif
+	ESP_LOGI(TAG, "csx = %d ; HRST = %d ; HRED = %d ; VRST = %d ; VRED = %d \r\n",csx, HRST, HRED, VRST, VRED);
 
 	// HRST[10:0] = 8n (n = 0,1,2…)
 	if (HRST % 8 != 0){
 		status = -1;
-#if SHOW_LOG
-		printf("status = -1 ; There is a problem with xStart. \r\n");
-#endif
 	}
 	// HRED[10:0] = 8m+3 (m = 4,5,6…)
 	else if ((HRED - 7) % 8 != 0) {
 		status = -2;
-#if SHOW_LOG
-		printf("status = -2 ; There is a problem with xPixel. \r\n");
-#endif
 	}
 	//  xStart <= 584 ; xPixel <= 600
 	else if ((xStart > 584) | (xPixel > 600)) {
 		status = -3;
-#if SHOW_LOG
-		printf("status = -3 ; xStart or xPixel is over range. \r\n");
-#endif
 	}
 	// HRED - HRST + 1 >= 32 & HRED + 1 <= 1200
 	else if ((HRED - HRST + 1 < 32) | (HRED + 1 > 1200)){
 		status = -4;
-#if SHOW_LOG
-		printf("status = -4 ; There is a problem with xStart & xPixel. \r\n");
-#endif
 	}
 	else if ((yStart + yLine) % 2 != 0){
 		status = -5;
-#if SHOW_LOG
-		printf("status = -5 ; yStart + yLine must be an even number. \r\n");
-#endif
 	}
 	// yStart <= 1596 ; yLine <= 1600
 	else if ((yStart > 1596) | (yLine > 1600)) {
 		status = -6;
-#if SHOW_LOG
-		printf("status = -6 ; yStart or yLine is over range. \r\n");
-#endif
 	}
 	//VRST - VRED + 1 > 0 & VRED + 1 <= 800
 	else if (((int)(VRED - VRST) + 1 <= 0) | (VRED + 1 > 800)){
 		status = -7;
-#if SHOW_LOG
-		printf("status = -7 ; There is a problem with yStart & yLine. \r\n");
-#endif
 	}
 	else if(csx > 1){
 		status = -8;
-#if SHOW_LOG
-		printf("status = -8 ; There is a problem with cxs. \r\n");
-#endif
 	}
 	else
 	{
@@ -527,9 +456,7 @@ char  partialWindowUpdateWithoutImageData(unsigned char csx, unsigned int xStart
 	if(status != DONE)
 	{
 		partialWindowUpdateStatus = ERROR;
-#if SHOW_LOG
-		printf("partialWindowUpdateStatus = ERROR \r\n");
-#endif
+		ESP_LOGE(TAG, "partialWindowUpdateStatus = ERROR (%d)", status);
 	}
 
 	if(epdDisplayEnable)
@@ -590,68 +517,147 @@ void pic_display(const unsigned char *num)
     // Refresh the display
     epdDisplay();                  // Trigger display
     vTaskDelay(pdMS_TO_TICKS(10)); // Delay 10ms to ensure refresh completion
-    printf("Rendering completed\r\n"); // Print completion message
+    ESP_LOGI(TAG, "Rendering completed"); // Print completion message
 }
 
 void pic_display_from_file(const char *filepath)
 {
     FILE *f = fopen(filepath, "rb");
     if (!f) {
-        printf("Failed to open image file from LittleFS: %s\n", filepath);
+        ESP_LOGE(TAG, "Failed to open image file: %s", filepath);
         return;
     }
 
-    unsigned int Width = (EPD_WIDTH % 2 == 0) ? (EPD_WIDTH / 2) : (EPD_WIDTH / 2 + 1);
-    unsigned int Width1 = (Width % 2 == 0) ? (Width / 2) : (Width / 2 + 1);
-    unsigned int Height = EPD_HEIGHT;
+    // Explicit dimensions for 13.3" Spectra 6 (1200 x 1600 total, 2 pixels per byte)
+    // Master IC (CS0) handles left 600 pixels (300 bytes)
+    // Slave IC (CS1) handles right 600 pixels (300 bytes)
+    const unsigned int halfWidthBytes = 300; 
+    const unsigned int fullRowBytes   = 600; 
+    const unsigned int height         = EPD_HEIGHT; // 1600 lines
 
-    // Allocate buffer for a single horizontal row across both sections
-    size_t fullRowBytes = Width1 * 2;
-    unsigned char *rowBuf = (unsigned char *)malloc(fullRowBytes);
-    if (!rowBuf) {
-        printf("Failed to allocate row buffer!\n");
+    const size_t singleBufSize = halfWidthBytes * height; // 480,000 bytes per controller
+
+    // 1. Allocate framebuffers in PSRAM
+    unsigned char *masterBuf = (unsigned char *)heap_caps_malloc(singleBufSize, MALLOC_CAP_SPIRAM);
+    unsigned char *slaveBuf  = (unsigned char *)heap_caps_malloc(singleBufSize, MALLOC_CAP_SPIRAM);
+
+    if (!masterBuf || !slaveBuf) {
+        ESP_LOGE(TAG, "Failed to allocate display framebuffers in PSRAM!");
+        if (masterBuf) free(masterBuf);
+        if (slaveBuf) free(slaveBuf);
         fclose(f);
         return;
     }
 
-    // --- Pass 1: Transfer data to Master Controller (CS 0) ---
-    setPinCsAll(GPIO_HIGH);
-    setPinCs(0, 0);
-    writeEpdCommand(DTM);
-
-    for (unsigned int i = 0; i < Height; i++) {
-        // Seek to start of row i
-        fseek(f, i * fullRowBytes, SEEK_SET);
-        fread(rowBuf, 1, fullRowBytes, f);
-
-        // Send first half of row data (Width1 bytes)
-        writeEpdData(rowBuf, Width1);
-        vTaskDelay(pdMS_TO_TICKS(1));
+    // 2. Allocate temporary single-line buffer in internal SRAM
+    unsigned char *rowTemp = (unsigned char *)malloc(fullRowBytes);
+    if (!rowTemp) {
+        ESP_LOGE(TAG, "Failed to allocate row buffer!");
+        free(masterBuf);
+        free(slaveBuf);
+        fclose(f);
+        return;
     }
-    setPinCsAll(GPIO_HIGH);
 
-    // --- Pass 2: Transfer data to Slave Controller (CS 1) ---
-    setPinCs(1, 0);
-    writeEpdCommand(DTM);
+    // 3. De-interleave row data into Master and Slave PSRAM buffers
+    for (unsigned int i = 0; i < height; i++) {
+        if (fread(rowTemp, 1, fullRowBytes, f) != fullRowBytes) {
+            ESP_LOGE(TAG, "Error reading image file at line %u", i);
+            break;
+        }
 
-    for (unsigned int i = 0; i < Height; i++) {
-        // Seek to start of row i
-        fseek(f, i * fullRowBytes, SEEK_SET);
-        fread(rowBuf, 1, fullRowBytes, f);
+        // Copy left half (0..299 bytes) to Master buffer
+        memcpy(masterBuf + (i * halfWidthBytes), rowTemp, halfWidthBytes);
 
-        // Send second half of row data (offset by Width1)
-        writeEpdData(rowBuf + Width1, Width1);
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // Copy right half (300..599 bytes) to Slave buffer
+        memcpy(slaveBuf + (i * halfWidthBytes), rowTemp + halfWidthBytes, halfWidthBytes);
     }
-    setPinCsAll(GPIO_HIGH);
 
-    // Cleanup resources
-    free(rowBuf);
+    free(rowTemp);
     fclose(f);
 
-    // Trigger physical panel refresh
+    // 4. Pass 1: Stream to Master Driver IC (CS 0)
+    setPinCsAll(GPIO_HIGH);
+    setPinCs(0, GPIO_LOW);
+    // Removed redundant writeEpdCommand(DTM) since spiTransmitLargeData sends DTM internally
+    spiTransmitLargeData(DTM, (const unsigned char *)masterBuf, singleBufSize);
+    setPinCs(0, GPIO_HIGH);
+
+    // 5. Pass 2: Stream to Slave Driver IC (CS 1)
+    setPinCsAll(GPIO_HIGH); // Ensure all CS lines are deselected before switching controllers
+    setPinCs(1, GPIO_LOW);
+    spiTransmitLargeData(DTM, (const unsigned char *)slaveBuf, singleBufSize);
+    setPinCs(1, GPIO_HIGH);
+
+    // 6. Free PSRAM framebuffers
+    free(masterBuf);
+    free(slaveBuf);
+
+    // 7. Trigger physical display update
     epdDisplay();
-    vTaskDelay(pdMS_TO_TICKS(10));
-    printf("Rendering from LittleFS completed\r\n");
+    ESP_LOGI(TAG, "Rendering completed successfully with seam alignment fix.");
 }
+
+
+//void pic_display_from_file(const char *filepath)
+//{
+//    FILE *f = fopen(filepath, "rb");
+//    if (!f) {
+//        printf("Failed to open image file from LittleFS: %s\n", filepath);
+//        return;
+//    }
+//
+//    unsigned int Width = (EPD_WIDTH % 2 == 0) ? (EPD_WIDTH / 2) : (EPD_WIDTH / 2 + 1);
+//    unsigned int Width1 = (Width % 2 == 0) ? (Width / 2) : (Width / 2 + 1);
+//    unsigned int Height = EPD_HEIGHT;
+//
+//    // Allocate buffer for a single horizontal row across both sections
+//    size_t fullRowBytes = Width1 * 2;
+//    unsigned char *rowBuf = (unsigned char *)malloc(fullRowBytes);
+//    if (!rowBuf) {
+//        printf("Failed to allocate row buffer!\n");
+//        fclose(f);
+//        return;
+//    }
+//
+//    // --- Pass 1: Transfer data to Master Controller (CS 0) ---
+//    setPinCsAll(GPIO_HIGH);
+//    setPinCs(0, 0);
+//    writeEpdCommand(DTM);
+//
+//    for (unsigned int i = 0; i < Height; i++) {
+//        // Seek to start of row i
+//        fseek(f, i * fullRowBytes, SEEK_SET);
+//        fread(rowBuf, 1, fullRowBytes, f);
+//
+//        // Send first half of row data (Width1 bytes)
+//        writeEpdData(rowBuf, Width1);
+//        vTaskDelay(pdMS_TO_TICKS(1));
+//    }
+//    setPinCsAll(GPIO_HIGH);
+//
+//    // --- Pass 2: Transfer data to Slave Controller (CS 1) ---
+//    setPinCs(1, 0);
+//    writeEpdCommand(DTM);
+//
+//    for (unsigned int i = 0; i < Height; i++) {
+//        // Seek to start of row i
+//        fseek(f, i * fullRowBytes, SEEK_SET);
+//        fread(rowBuf, 1, fullRowBytes, f);
+//
+//        // Send second half of row data (offset by Width1)
+//        writeEpdData(rowBuf + Width1, Width1);
+//        vTaskDelay(pdMS_TO_TICKS(1));
+//    }
+//    setPinCsAll(GPIO_HIGH);
+//
+//    // Cleanup resources
+//    free(rowBuf);
+//    fclose(f);
+//
+//    // Trigger physical panel refresh
+//    epdDisplay();
+//    vTaskDelay(pdMS_TO_TICKS(10));
+//    printf("Rendering from LittleFS completed\r\n");
+//}
 
