@@ -1,5 +1,6 @@
 const express = require('express');
 const dgram = require('dgram');
+const multer = require('multer');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -9,7 +10,14 @@ const crypto = require('crypto');
 const config = require('./config.json');
 
 const app = express();
+// Parse JSON bodies (asynchronous API payloads)
 app.use(express.json());
+
+// Parse URL-encoded bodies (standard HTML form posts)
+app.use(express.urlencoded({ extended: true }));
+
+// Serve static frontend files (index.html, js, css)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper function to detect local physical network interface IP
 function getPhysicalLocalIP() {
@@ -39,15 +47,45 @@ function getPhysicalLocalIP() {
 
 const physicalIP = getPhysicalLocalIP();
 
-// 1. Serve static web files from the 'public' directory
-app.use(express.static(path.join(__dirname, 'public')));
-
 // 2. In-memory state tracking
 let systemStatus = {
     lastEspIp: 'Not Connected',
-    lastSeen: 'None',
-    currentMessage: 'E-Paper System Ready'
+    lastSeen: 'None'
 };
+
+// =========================================================================
+// 3. Prepare for file upload
+// =========================================================================
+
+// Resolve target directories: uploads/original and uploads/simulate
+const originalDir = path.join(__dirname, 'uploads/original');
+const simulateDir = path.join(__dirname, 'uploads/simulate');
+
+// Ensure upload directories exist
+[originalDir, simulateDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+});
+
+// Configure Multer storage to route files into their respective folders
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        if (file.fieldname === 'original') {
+            cb(null, originalDir);
+        } else if (file.fieldname === 'dithered') {
+            cb(null, simulateDir);
+        } else {
+            cb(new Error('Invalid field name'), null);
+        }
+    },
+    filename: (req, file, cb) => {
+        // Save using the original filename sent from the client
+        cb(null, file.originalname);
+    }
+});
+
+const upload = multer({ storage });
 
 
 // =========================================================================
@@ -117,16 +155,6 @@ app.get('/api/status', (req, res) => {
     res.json(systemStatus);
 });
 
-app.post('/api/update-message', (req, res) => {
-    const { message } = req.body;
-    if (message !== undefined) {
-        systemStatus.currentMessage = message;
-        console.log(`[Admin] Display message updated to: "${message}"`);
-        res.json({ success: true, message: systemStatus.currentMessage });
-    } else {
-        res.status(400).json({ success: false, error: 'Missing message field' });
-    }
-});
 
 // Helper function to compute MD5 hash of a local file on the server
 function getFileMD5(filePath) {
@@ -279,12 +307,30 @@ app.get('/api/image/:macFolder/:fileName', (req, res) => {
 	});
 });
 
-app.get('/api/display-data', (req, res) => {
-    res.json({
-        message: systemStatus.currentMessage,
-        updatedAt: systemStatus.lastSeen
+
+
+
+// Handling dual-file upload route
+app.post('/upload', upload.fields([
+    { name: 'original', maxCount: 1 },
+    { name: 'dithered', maxCount: 1 }
+]), (req, res) => {
+    if (!req.files || !req.files.original || !req.files.dithered) {
+        return res.status(400).json({ error: 'Both original and dithered images are required.' });
+    }
+
+    console.log('Saved Original Image:', req.files.original[0].path);
+    console.log('Saved Dithered Image:', req.files.dithered[0].path);
+
+    res.status(200).json({
+        message: 'Images uploaded and saved successfully.',
+        files: {
+            original: req.files.original[0].filename,
+            dithered: req.files.dithered[0].filename
+        }
     });
 });
+
 
 // =========================================================================
 // 5. Start Web Server
