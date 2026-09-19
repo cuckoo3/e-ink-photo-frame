@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<html lang="en">
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dithering Tool</title>
@@ -20,479 +20,228 @@
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             background-color: white;
         }
-        #upload {
-            margin-top: 20px;
-            margin-bottom: 10px;
-        }
-        #dither-options {
+        select {
             margin-bottom: 10px;
             font-size: 16px;
-            padding: 5px;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
         }
-        button {
+
+        /* Standardized Button & File Upload Style */
+        button, .file-upload-btn {
+            display: inline-block;
             margin-top: 10px;
             padding: 10px 20px;
             font-size: 16px;
+            font-weight: normal;
             cursor: pointer;
             background-color: #007bff;
             color: white;
             border: none;
             border-radius: 4px;
             transition: background-color 0.3s ease;
+            text-align: center;
+            box-sizing: border-box;
         }
-        button:hover {
+
+        button:hover, .file-upload-btn:hover {
             background-color: #0056b3;
         }
-    </style>
 
+        /* Hide the native file input */
+        #upload {
+            display: none;
+        }
+    </style>
+</head>
 <body>
 
-    <p><b><font size="5"><br>Dithering Tool</font></b></p>
+    <h1>Dithering Tool</h1>
 
-    <font >
+    <!-- Custom styled file picker button -->
+    <label for="upload" class="file-upload-btn">
+        Browse Image
+    </label>
     <input type="file" id="upload" accept="image/*">
-    <br>
- <select id="dither-options" style="font-size: 16px; margin-bottom: 10px; padding: 5px" name="D1">
-        <option value="floyd-steinberg" selected="selected">Floyd-Steinberg</option>
+
+    <br><br>
+
+    <!-- Target Device Selector -->
+    <label for="device-options"><strong>Target Device:</strong></label>
+    <select id="device-options">
+        <option value="">Loading devices...</option>
+    </select>
+	&nbsp;&nbsp;&nbsp;&nbsp;
+    <!-- Dithering Algorithm Selector -->
+    <label for="dither-options"><strong>Algorithm:</strong></label>
+    <select id="dither-options" name="D1">
+        <option value="floyd-steinberg">Floyd-Steinberg</option>
         <option value="jjn" selected="selected">Jarvis-Judice-Ninke (JJN)</option>
         <option value="stucki">Stucki</option>
-        <option value="atkinson">Atkinson</option>
-  </select>
+    </select>
 
-<!-- Status Indicator -->
-  <span id="render-status" style="margin-left: 10px; font-weight: bold; color: #2e7d32; display: none;">Done</span>
+    <!-- Status Indicator -->
+    <span id="render-status" style="margin-left: 10px; font-weight: bold; color: #2e7d32; display: none;">Done</span>
     <br>
-    <button id="download">Download Ddithered Image</button>
+
+    <button id="download">Download Dithered Image</button>
     <button id="upload-server">Upload to Server</button>
     <br>
     <canvas id="canvas" width="1600" height="1200"></canvas>
 
+    <!-- External Dithering Engine -->
+    <script src="dither.js"></script>
+
+    <!-- Main UI Event Controller -->
     <script>
-const uploadInput = document.getElementById('upload');
-const ditherOptions = document.getElementById('dither-options');
-const downloadButton = document.getElementById('download');
-const uploadServerButton = document.getElementById('upload-server');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const renderStatus = document.getElementById('render-status');
+        const uploadInput = document.getElementById('upload');
+        const deviceOptions = document.getElementById('device-options');
+        const ditherOptions = document.getElementById('dither-options');
+        const downloadButton = document.getElementById('download');
+        const uploadServerButton = document.getElementById('upload-server');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const renderStatus = document.getElementById('render-status');
 
-// Holds reference to the original source image
-let currentLoadedImage = null;
-let currentOffscreenCanvas = null;
-// Variable to store the original file name
-let originalFileName = 'image.png';
+        let currentLoadedImage = null;
+        let currentOffscreenCanvas = null;
+        let originalFileName = 'image.png';
 
-uploadInput.addEventListener('change', (event) => {
-    const file = event.target.files[0];
-    if (file) {
-        originalFileName = file.name; // Store the original file name (e.g., "my_photo.jpg")
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
-                currentLoadedImage = img;
+        // Fetch devices list from server on page load
+        async function fetchDevices() {
+            try {
+                const response = await fetch('/admin/devices');
+                if (!response.ok) throw new Error('Failed to fetch devices');
+
+                const data = await response.json();
+                deviceOptions.innerHTML = '';
+
+                if (data.macs && data.macs.length > 0) {
+                    data.macs.forEach(mac => {
+                        const option = document.createElement('option');
+                        option.value = mac;
+                        option.textContent = mac;
+                        deviceOptions.appendChild(option);
+                    });
+                } else {
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = 'No devices found';
+                    deviceOptions.appendChild(option);
+                }
+            } catch (error) {
+                console.error('Error fetching device list:', error);
+                deviceOptions.innerHTML = '<option value="">Error loading devices</option>';
+            }
+        }
+
+        uploadInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                originalFileName = file.name;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        currentLoadedImage = img;
+                        startProcessing();
+                    }
+                    img.src = e.target.result;
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        ditherOptions.addEventListener('change', () => {
+            if (currentLoadedImage) {
                 startProcessing();
             }
-            img.src = e.target.result;
-        }
-        reader.readAsDataURL(file);
-    }
-});
+        });
 
-// Re-run dithering immediately when selection changes
-ditherOptions.addEventListener('change', () => {
-    if (currentLoadedImage) {
-        startProcessing();
-    }
-});
+        downloadButton.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'dithered_image.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        });
 
-downloadButton.addEventListener('click', () => {
-    const link = document.createElement('a');
-    link.download = 'dithered_image.png';
-    link.href = canvas.toDataURL();
-    link.click();
-});
+        if (uploadServerButton) {
+            uploadServerButton.addEventListener('click', async () => {
+                if (!currentLoadedImage || !currentOffscreenCanvas) {
+                    alert('Please load an image first.');
+                    return;
+                }
 
-// Upload both images to the Express server
-if (uploadServerButton) {
-    uploadServerButton.addEventListener('click', async () => {
-        if (!currentLoadedImage || !currentOffscreenCanvas) {
-            alert('Please load an image first.');
-            return;
-        }
+                const selectedMac = deviceOptions.value;
+                if (!selectedMac) {
+                    alert('Please select a valid device MAC address.');
+                    return;
+                }
 
-        renderStatus.textContent = 'Uploading...';
-        renderStatus.style.display = 'inline';
+                renderStatus.textContent = 'Uploading...';
+                renderStatus.style.display = 'inline';
 
-        try {
-            // Convert both canvases to Blob objects
-            const originalBlob = await new Promise(resolve => currentOffscreenCanvas.toBlob(resolve, 'image/png'));
-            const ditheredBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                try {
+                    const originalBlob = await new Promise(resolve => currentOffscreenCanvas.toBlob(resolve, 'image/jpeg', 0.8));
+                    const ditheredBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 
-            // Extract base name without extension
-            const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
+                    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
 
-            const formData = new FormData();
-            formData.append('original', originalBlob, `${baseName}_original.png`);
-            formData.append('dithered', ditheredBlob, `${baseName}_dithered.png`);
+                    const formData = new FormData();
+                    formData.append('mac', selectedMac);
+                    formData.append('original', originalBlob, `${baseName}.jpg`);
+                    formData.append('dithered', ditheredBlob, `${baseName}.png`);
 
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData
+                    const response = await fetch('/admin/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        renderStatus.textContent = 'Uploaded successfully!';
+                    } else {
+                        renderStatus.textContent = 'Upload failed.';
+                    }
+                } catch (error) {
+                    console.error('Upload Error:', error);
+                    renderStatus.textContent = 'Error uploading.';
+                }
             });
-
-            if (response.ok) {
-                renderStatus.textContent = 'Uploaded successfully!';
-            } else {
-                renderStatus.textContent = 'Upload failed.';
-            }
-        } catch (error) {
-            console.error('Upload Error:', error);
-            renderStatus.textContent = 'Error uploading.';
         }
-    });
-}
 
-// Trigger UI update first, then process image in next frame
-function startProcessing() {
-    renderStatus.textContent = 'Processing...';
-    renderStatus.style.display = 'inline';
+        function startProcessing() {
+            renderStatus.textContent = 'Processing...';
+            renderStatus.style.display = 'inline';
 
-    setTimeout(() => {
-        renderAndDither();
-    }, 20);
-}
-
-function renderAndDither() {
-    if (!currentLoadedImage) return;
-
-    // Crop and scale source to target frame (1200x1600 or 1600x1200)
-    currentOffscreenCanvas = getScaledAndCroppedCanvas(currentLoadedImage);
-
-    // Set display canvas dimensions
-    canvas.width = currentOffscreenCanvas.width;
-    canvas.height = currentOffscreenCanvas.height;
-
-    // Extract pristine raw pixel buffer from resized canvas
-    const offCtx = currentOffscreenCanvas.getContext('2d');
-    const originalImageData = offCtx.getImageData(0, 0, canvas.width, canvas.height);
-
-    // Apply dithering directly to memory buffer
-    applyDitheringToBuffer(originalImageData);
-
-    // Draw dithered pixel buffer to main screen canvas
-    ctx.putImageData(originalImageData, 0, 0);
-
-    // Show "Done" status once finished
-    renderStatus.textContent = 'Done';
-    renderStatus.style.display = 'inline';
-}
-
-function applyDitheringToBuffer(imageData) {
-    const option = ditherOptions.value;
-    const colors = getColors();
-
-    if (option === 'floyd-steinberg') {
-        applyFloydSteinbergDithering(imageData, colors);
-    } else if (option === 'jjn') {
-        applyJJNDithering(imageData, colors);
-    } else if (option === 'stucki') {
-        applyStuckiDithering(imageData, colors);
-    } else if (option === 'atkinson') {
-        applyAtkinsonDithering(imageData, colors);
-    }
-}
-
-function getColors() {
-    return [
-        { r: 25,  g: 30,  b: 33,  val: 0x0 }, // Black
-        { r: 232, g: 232, b: 232, val: 0x1 }, // White
-        { r: 239, g: 222, b: 68,  val: 0x2 }, // Yellow
-        { r: 178, g: 19,  b: 24,  val: 0x3 }, // Red
-        { r: 33,  g: 87,  b: 186, val: 0x5 }, // Blue
-        { r: 30,  g: 130, b: 60,  val: 0x6 }  // Green
-    ];
-}
-
-function findNearestColor(pixel, colors) {
-    let nearestColor = colors[0];
-    let minDistance = colorDistance(pixel, colors[0]);
-    for (let i = 1; i < colors.length; i++) {
-        const distance = colorDistance(pixel, colors[i]);
-        if (distance < minDistance) {
-            minDistance = distance;
-            nearestColor = colors[i];
+            setTimeout(() => {
+                renderAndDither();
+            }, 20);
         }
-    }
-    return nearestColor;
-}
 
-function getScaledAndCroppedCanvas(img) {
-    const isLandscape = img.width > img.height;
-    const targetWidth = isLandscape ? 1600 : 1200;
-    const targetHeight = isLandscape ? 1200 : 1600;
+        function renderAndDither() {
+            if (!currentLoadedImage) return;
 
-    const scale = Math.max(targetWidth / img.width, targetHeight / img.height);
-    const cropWidth = targetWidth / scale;
-    const cropHeight = targetHeight / scale;
-    const cropX = (img.width - cropWidth) / 2;
-    const cropY = (img.height - cropHeight) / 2;
+            currentOffscreenCanvas = getScaledAndCroppedCanvas(currentLoadedImage);
 
-    const offscreen = document.createElement('canvas');
-    offscreen.width = targetWidth;
-    offscreen.height = targetHeight;
-    const offCtx = offscreen.getContext('2d');
+            canvas.width = currentOffscreenCanvas.width;
+            canvas.height = currentOffscreenCanvas.height;
 
-    offCtx.drawImage(
-        img,
-        cropX, cropY, cropWidth, cropHeight,
-        0, 0, targetWidth, targetHeight
-    );
+            const offCtx = currentOffscreenCanvas.getContext('2d');
+            const originalImageData = offCtx.getImageData(0, 0, canvas.width, canvas.height);
 
-    return offscreen;
-}
+            applyDitheringToBuffer(originalImageData, ditherOptions.value);
 
-function sRGBtoOKLab(c) {
-    let r = c.r / 255, g = c.g / 255, b = c.b / 255;
-    r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
-    g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
-    b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+            ctx.putImageData(originalImageData, 0, 0);
 
-    const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
-    const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969567 * b;
-    const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+//            addWhiteBorder(ctx, canvas.width, canvas.height, 10);
 
-    const l_ = Math.cbrt(l), m_ = Math.cbrt(m), s_ = Math.cbrt(s);
-
-    return {
-        L: 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
-        a: 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
-        b: 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
-    };
-}
-
-function colorDistance(c1, c2) {
-    const lab1 = sRGBtoOKLab(c1);
-    const lab2 = sRGBtoOKLab(c2);
-    const dL = lab1.L - lab2.L;
-    const da = lab1.a - lab2.a;
-    const db = lab1.b - lab2.b;
-    return Math.sqrt(dL * dL + da * da + db * db);
-}
-
-function clamp(value, min = 0, max = 255) {
-    return Math.max(min, Math.min(value, max));
-}
-
-// ----------------- Dithering Algorithms (Buffer Based) -----------------
-
-// FloydSteinberg
-function applyFloydSteinbergDithering(imageData, colors) {
-    const pixels = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const index = (y * width + x) * 4;
-            const oldPixel = { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
-            const newPixel = findNearestColor(oldPixel, colors);
-
-            pixels[index]     = newPixel.r;
-            pixels[index + 1] = newPixel.g;
-            pixels[index + 2] = newPixel.b;
-
-            const quantErrorR = oldPixel.r - newPixel.r;
-            const quantErrorG = oldPixel.g - newPixel.g;
-            const quantErrorB = oldPixel.b - newPixel.b;
-
-            distributeFloydSteinbergError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB);
+            renderStatus.textContent = 'Done';
+            renderStatus.style.display = 'inline';
         }
-    }
-}
 
-function distributeFloydSteinbergError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB) {
-    const damping = 0.8;
-    const neighbors = [
-        { dx: 1, dy: 0, w: 7 / 16 },
-        { dx: -1, dy: 1, w: 3 / 16 },
-        { dx: 0, dy: 1, w: 5 / 16 },
-        { dx: 1, dy: 1, w: 1 / 16 }
-    ];
-
-    for (let i = 0; i < neighbors.length; i++) {
-        const nx = x + neighbors[i].dx;
-        const ny = y + neighbors[i].dy;
-        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            const index = (ny * width + nx) * 4;
-            const weight = neighbors[i].w * damping;
-            pixels[index]     = clamp(pixels[index]     + quantErrorR * weight);
-            pixels[index + 1] = clamp(pixels[index + 1] + quantErrorG * weight);
-            pixels[index + 2] = clamp(pixels[index + 2] + quantErrorB * weight);
-        }
-    }
-}
-
-// JJN
-function applyJJNDithering(imageData, colors) {
-    const pixels = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const index = (y * width + x) * 4;
-            const oldPixel = { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
-            const newPixel = findNearestColor(oldPixel, colors);
-
-            pixels[index]     = newPixel.r;
-            pixels[index + 1] = newPixel.g;
-            pixels[index + 2] = newPixel.b;
-
-            const quantErrorR = oldPixel.r - newPixel.r;
-            const quantErrorG = oldPixel.g - newPixel.g;
-            const quantErrorB = oldPixel.b - newPixel.b;
-
-            distributeJJNError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB);
-        }
-    }
-}
-
-function distributeJJNError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB) {
-    const damping = 0.8; 
-    const neighbors = [
-        { dx: 1, dy: 0, weight: (7 / 48) * damping },
-        { dx: 2, dy: 0, weight: (5 / 48) * damping },
-        { dx: -2, dy: 1, weight: (3 / 48) * damping },
-        { dx: -1, dy: 1, weight: (5 / 48) * damping },
-        { dx: 0, dy: 1, weight: (7 / 48) * damping },
-        { dx: 1, dy: 1, weight: (5 / 48) * damping },
-        { dx: 2, dy: 1, weight: (3 / 48) * damping },
-        { dx: -2, dy: 2, weight: (1 / 48) * damping },
-        { dx: -1, dy: 2, weight: (3 / 48) * damping },
-        { dx: 0, dy: 2, weight: (5 / 48) * damping },
-        { dx: 1, dy: 2, weight: (3 / 48) * damping },
-        { dx: 2, dy: 2, weight: (1 / 48) * damping }
-    ];
-
-    for (let i = 0; i < neighbors.length; i++) {
-        const nx = x + neighbors[i].dx;
-        const ny = y + neighbors[i].dy;
-        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            const index = (ny * width + nx) * 4;
-            const w = neighbors[i].weight;
-            pixels[index]     = clamp(pixels[index]     + quantErrorR * w);
-            pixels[index + 1] = clamp(pixels[index + 1] + quantErrorG * w);
-            pixels[index + 2] = clamp(pixels[index + 2] + quantErrorB * w);
-        }
-    }
-}
-
-// Stucki
-function applyStuckiDithering(imageData, colors) {
-    const pixels = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const index = (y * width + x) * 4;
-            const oldPixel = { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
-            const newPixel = findNearestColor(oldPixel, colors);
-
-            pixels[index]     = newPixel.r;
-            pixels[index + 1] = newPixel.g;
-            pixels[index + 2] = newPixel.b;
-
-            const quantErrorR = oldPixel.r - newPixel.r;
-            const quantErrorG = oldPixel.g - newPixel.g;
-            const quantErrorB = oldPixel.b - newPixel.b;
-
-            distributeStuckiError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB);
-        }
-    }
-}
-
-function distributeStuckiError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB) {
-    const damping = 0.8; 
-    const neighbors = [
-        { dx: 1, dy: 0, weight: (8 / 42) * damping },
-        { dx: 2, dy: 0, weight: (4 / 42) * damping },
-        { dx: -2, dy: 1, weight: (2 / 42) * damping },
-        { dx: -1, dy: 1, weight: (4 / 42) * damping },
-        { dx: 0, dy: 1, weight: (8 / 42) * damping },
-        { dx: 1, dy: 1, weight: (5 / 42) * damping },
-        { dx: 2, dy: 1, weight: (2 / 42) * damping },
-        { dx: -2, dy: 2, weight: (1 / 42) * damping },
-        { dx: -1, dy: 2, weight: (2 / 42) * damping },
-        { dx: 0, dy: 2, weight: (4 / 42) * damping },
-        { dx: 1, dy: 2, weight: (2 / 42) * damping },
-        { dx: 2, dy: 2, weight: (1 / 42) * damping }
-    ];
-
-    for (let i = 0; i < neighbors.length; i++) {
-        const nx = x + neighbors[i].dx;
-        const ny = y + neighbors[i].dy;
-        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            const index = (ny * width + nx) * 4;
-            const w = neighbors[i].weight;
-            pixels[index]     = clamp(pixels[index]     + quantErrorR * w);
-            pixels[index + 1] = clamp(pixels[index + 1] + quantErrorG * w);
-            pixels[index + 2] = clamp(pixels[index + 2] + quantErrorB * w);
-        }
-    }
-}
-
-// Atkinson
-function applyAtkinsonDithering(imageData, colors) {
-    const pixels = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const index = (y * width + x) * 4;
-            const oldPixel = { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
-            const newPixel = findNearestColor(oldPixel, colors);
-
-            pixels[index]     = newPixel.r;
-            pixels[index + 1] = newPixel.g;
-            pixels[index + 2] = newPixel.b;
-
-            const quantErrorR = oldPixel.r - newPixel.r;
-            const quantErrorG = oldPixel.g - newPixel.g;
-            const quantErrorB = oldPixel.b - newPixel.b;
-
-            distributeAtkinsonError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB);
-        }
-    }
-}
-
-function distributeAtkinsonError(pixels, width, height, x, y, quantErrorR, quantErrorG, quantErrorB) {
-    const damping = 0.8;
-    const weight = (1 / 8) * damping;
-    const neighbors = [
-        { dx: 1, dy: 0 }, { dx: 2, dy: 0 },
-        { dx: -1, dy: 1 }, { dx: 0, dy: 1 }, { dx: 1, dy: 1 },
-        { dx: 0, dy: 2 }
-    ];
-
-    for (let i = 0; i < neighbors.length; i++) {
-        const nx = x + neighbors[i].dx;
-        const ny = y + neighbors[i].dy;
-        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            const index = (ny * width + nx) * 4;
-            pixels[index]     = clamp(pixels[index]     + quantErrorR * weight);
-            pixels[index + 1] = clamp(pixels[index + 1] + quantErrorG * weight);
-            pixels[index + 2] = clamp(pixels[index + 2] + quantErrorB * weight);
-        }
-    }
-}
-
-function clamp(value, min = 0, max = 255) {
-    return Math.max(min, Math.min(value, max));
-}
+        // Initialize device dropdown on page load
+        fetchDevices();
     </script>
-
-
-</font></p></body></html>
+</body>
+</html>
