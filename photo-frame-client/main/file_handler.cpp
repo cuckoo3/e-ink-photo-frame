@@ -91,7 +91,6 @@ cJSON* FileHandler::generate_files_json(const char* mount_point)
                     continue;
                 }
 				cJSON_AddStringToObject(file_obj, "name", entry->d_name);
-				cJSON_AddNumberToObject(file_obj, "size", st.st_size);
 
                 // calculate MD5
                 char md5[33];

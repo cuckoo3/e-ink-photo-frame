@@ -152,64 +152,6 @@ esp_err_t ServerComm::_http_event_handler(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
-//// =========================================================================
-//// HTTP Client Execution
-//// =========================================================================
-//void ServerComm::fetch_display_data(const char *server_ip, int server_port)
-//{
-//	char url[128];
-//	snprintf(url, sizeof(url), "http://%s:%d/api/display-data", server_ip, server_port);
-//	
-//	std::string response_body = "";
-//
-//    esp_http_client_config_t config = {};
-//    config.url = url;
-//    config.timeout_ms = 5000;
-//    config.event_handler = http_event_handler;
-//    config.user_data = &response_body;
-//	
-//	esp_http_client_handle_t client = esp_http_client_init(&config);
-//	
-//	esp_err_t err = esp_http_client_perform(client);
-//	if (err == ESP_OK) {
-//	    int status_code = esp_http_client_get_status_code(client);
-//	    ESP_LOGI(TAG, "HTTP GET Status = %d, Received Bytes = %zu", status_code, response_body.length());
-//	
-//		if (status_code == 200 && !response_body.empty()) {
-//	        ESP_LOGI(TAG, "RAW Payload: %s", response_body.c_str());
-//	
-//	        // Parse JSON payload
-//	        cJSON *root = cJSON_Parse(response_body.c_str());
-//	        if (root) {
-//	            cJSON *msg = cJSON_GetObjectItem(root, "message");
-//	            cJSON *updated = cJSON_GetObjectItem(root, "updatedAt");
-//	
-//	            if (cJSON_IsString(msg) && (msg->valuestring != NULL)) {
-//	                ESP_LOGI(TAG, "Parsed Message: %s", msg->valuestring);
-//	            } else {
-//	                ESP_LOGW(TAG, "Field 'message' missing or invalid format");
-//	            }
-//	
-//	            if (cJSON_IsString(updated) && (updated->valuestring != NULL)) {
-//	                ESP_LOGI(TAG, "Parsed Timestamp: %s", updated->valuestring);
-//	            } else {
-//	                ESP_LOGW(TAG, "Field 'updatedAt' missing or invalid format");
-//	            }
-//	
-//	            cJSON_Delete(root);
-//	        } else {
-//	            ESP_LOGE(TAG, "Failed to parse JSON payload");
-//	        }
-//	    } else {
-//	        ESP_LOGW(TAG, "HTTP response status code is not 200 or body is empty");
-//	    }
-//	} else {
-//	    ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
-//	}
-//	
-//	esp_http_client_cleanup(client);
-//}
-
 bool ServerComm::connect_server(char* server_ip, int &server_port)
 {
 	if (server_ip[0] == '\0' || server_port == 0) {
@@ -234,9 +176,9 @@ bool ServerComm::connect_server(char* server_ip, int &server_port)
 	
 	{
 	  "mac": "24:DC:C3:A1:B2:C3",
-	  "local_files": [
-	    { "name": "photo01.bin", "size": 96000, md5": xxxxxx },
-	    { "name": "photo02.bin", "size": 96000, "md5": xxxxxx }
+	  "images": [
+	    { "name": "photo01.bin", md5": xxxxxx },
+	    { "name": "photo02.bin", "md5": xxxxxx }
 	  ]
 	}
 	
@@ -264,9 +206,9 @@ bool ServerComm::sync_image_list(const char *server_ip, const int server_port)
 	cJSON *root = cJSON_CreateObject();
 	cJSON_AddStringToObject(root, "mac", _get_mac_address());
 	
-	// Call scan_local_files() to populate "local_files" array
-    cJSON *local_files = fileHandler.generate_files_json(AppConfig::STORAGE_PATH);
-    cJSON_AddItemToObject(root, "local_files", local_files);
+	// Call scan_local_files() to populate "images" array
+    cJSON *images = fileHandler.generate_files_json(AppConfig::STORAGE_PATH);
+    cJSON_AddItemToObject(root, "images", images);
 
     char *json_body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root); // Free the cJSON structure memory
