@@ -194,7 +194,7 @@ bool ServerComm::connect_server(char* server_ip, int &server_port)
 	}
 	
 */
-bool ServerComm::sync_image_list(const char *server_ip, const int server_port)
+bool ServerComm::sync_image_list(const char *server_ip, const int server_port, uint16_t &sleep_duration_min)
 {
 	bool file_changed = false;
 	FileHandler fileHandler;
@@ -253,7 +253,13 @@ bool ServerComm::sync_image_list(const char *server_ip, const int server_port)
             // 5. Parse Server Response Diff JSON
             cJSON *response_json = cJSON_Parse(response_buf.data);
             if (response_json) {
-                
+				// Extract sleepDurationMin from response
+	            cJSON *sleep_item = cJSON_GetObjectItem(response_json, "sleepDurationMin");
+				if (cJSON_IsNumber(sleep_item) && sleep_item->valueint > 0) {
+	                sleep_duration_min = (uint32_t)sleep_item->valueint;
+	                ESP_LOGI(TAG, "Updated sleep duration from server: %u minutes", sleep_duration_min);
+	            }
+
                 // Process 'delete' array
                 cJSON *delete_list = cJSON_GetObjectItem(response_json, "delete");
                 if (cJSON_IsArray(delete_list)) {

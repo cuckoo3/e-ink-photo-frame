@@ -2,14 +2,14 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const internalOnly = require('../utils/internalOnly');
-const { formatMac, ensureDevice, getDeviceImages } = require('../utils/deviceRegistry');
+const { getRegistry, formatMac, ensureDevice, getDeviceImages } = require('../utils/deviceRegistry');
 
 const router = express.Router();
 
 // Apply internal-only restriction to all ESP32 endpoints
 router.use(internalOnly);
 
-module.exports = function(config, uploadsBaseDir, registry, saveRegistryToDisk) {
+module.exports = function(config, uploadsBaseDir) {
     // POST /api/sync
 /*
 Client send following JSON:
@@ -25,6 +25,7 @@ Client send following JSON:
 Server reply following JSON:
 
 {
+	"sleepDurationMin": 240,
   "new": [
     { "name": "photo03.bin", "url": "/api/image/A1B2C3D4E5/photo03.bin" }
   ],
@@ -41,16 +42,21 @@ Server reply following JSON:
             return res.status(400).json({ error: 'Missing MAC address or images array' });
         }
 
+		const registry = getRegistry();
         const formattedMac = formatMac(mac);
-
+		
         // 1. Auto-register new device into devices.json if missing without creating folders
-        const { isNew } = ensureDevice(formattedMac, registry, saveRegistryToDisk);
+        const { isNew } = ensureDevice(formattedMac);
         if (isNew) {
             console.log(`[Sync] Registered new device MAC in registry: ${formattedMac}`);
         }
-
+		
+		// Fetch device entry and configured sleep duration in minutes (defaults to 240 min)
+        const deviceRecord = registry.devices[formattedMac] || {};
+        const sleepDurationMin = deviceRecord.sleepDurationMin !== undefined ? deviceRecord.sleepDurationMin : 240;
+		
         // 2. Fetch server images directly from registry memory (devices.json)
-        const serverRegistryImages = getDeviceImages(formattedMac, registry);
+        const serverRegistryImages = getDeviceImages(formattedMac);
 
         // Map ESP payload by image name
         const espFilesMap = new Map();
@@ -101,6 +107,7 @@ Server reply following JSON:
         });
 
         return res.json({
+			sleepDurationMin: sleepDurationMin,
             new: newDownloads,
             delete: filesToDelete
         });

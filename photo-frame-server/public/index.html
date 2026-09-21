@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Paper Device & Image Manager</title>
+    <script src="/js/tailwindcss.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen p-6">
+
+    <div class="max-w-6xl mx-auto bg-white rounded-lg shadow-md p-6">
+        <h1 class="text-2xl font-bold mb-6 text-gray-900 border-b pb-3">E-Paper Image Management</h1>
+
+        <!-- Top Controls Section -->
+        <div class="space-y-6 mb-8">
+            <!-- 1. Device Dropdown -->
+            <div class="flex items-center space-x-4">
+                <label for="deviceSelect" class="font-semibold text-gray-700 w-44">Select Device:</label>
+                <select id="deviceSelect" class="border border-gray-300 rounded px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-64" onchange="onDeviceChange()">
+                    <option value="">-- Loading Devices --</option>
+                </select>
+            </div>
+
+            <!-- 2. Sleep Duration Edit Box & Submit Button -->
+            <div class="flex items-center space-x-4">
+                <label for="sleepDurationInput" class="font-semibold text-gray-700 w-44">Sleep Duration (minutes):</label>
+                <input type="number" id="sleepDurationInput" min="1" max="1440" placeholder="e.g. 240 (max 1440)" 
+                       onfocus="clearConfigStatus()" 
+                       class="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+                <button onclick="updateSleepDuration()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded transition">
+                    Submit
+                </button>
+                <span id="configStatus" class="font-semibold text-sm"></span>
+            </div>
+
+            <!-- 3. Link to dithering Tool -->
+            <div>
+                <a href="ditheringTool.htm" target="_blank" class="inline-flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded transition">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                    Open Dithering Tool
+                </a>
+            </div>
+        </div>
+
+        <hr class="my-6">
+
+        <!-- 4. Image Gallery List -->
+        <h2 class="text-xl font-semibold mb-4 text-gray-800">Device Gallery</h2>
+        <div id="imageGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+            <!-- Image thumbnails populate dynamically -->
+        </div>
+    </div>
+
+    <!-- Hover Popup Layer for Dithered Preview -->
+    <div id="hoverPopup" class="fixed hidden pointer-events-none z-50 bg-black bg-opacity-90 p-3 rounded-lg shadow-2xl border border-gray-600">
+        <!-- Dynamic Image Name Header -->
+        <p id="hoverImageTitle" class="text-sm font-semibold text-gray-200 mb-2 text-center font-mono truncate max-w-md"></p>
+        <!-- Scaled-up Preview Image -->
+        <img id="hoverImage" src="" alt="Dithered Preview" class="max-w-md max-h-[500px] rounded object-contain">
+    </div>
+
+    <!-- Full 100% Resolution Lightbox Modal (Click to View 1600x1200) -->
+    <div id="imageModal" class="fixed inset-0 hidden z-50 bg-black bg-opacity-80 flex items-center justify-center p-4" onclick="closeModal()">
+        <div class="bg-gray-900 border border-gray-700 p-4 rounded-lg max-w-[95vw] max-h-[95vh] flex flex-col items-center shadow-2xl" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center w-full mb-2">
+                <h3 id="modalTitle" class="text-white font-mono text-sm font-semibold"></h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white font-bold text-xl px-2">&times;</button>
+            </div>
+            <!-- Scrollable container preserving 1600x1200 native pixels -->
+            <div class="overflow-auto max-w-[90vw] max-h-[85vh] border border-gray-800 rounded">
+                <img id="modalImage" src="" alt="100% Dithered Image" class="w-[1600px] h-[1200px] max-w-none object-contain">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const hoverPopup = document.getElementById('hoverPopup');
+        const hoverImage = document.getElementById('hoverImage');
+        const hoverImageTitle = document.getElementById('hoverImageTitle');
+        const configStatus = document.getElementById('configStatus');
+
+        // Initialize page data
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchDevices();
+        });
+
+        // Track cursor position with edge detection to prevent viewport overflow
+        document.addEventListener('mousemove', (e) => {
+            if (!hoverPopup.classList.contains('hidden')) {
+                const offset = 15;
+                let left = e.clientX + offset;
+                let top = e.clientY + offset;
+
+                // Edge checking for viewport overflow
+                const popupRect = hoverPopup.getBoundingClientRect();
+                if (left + popupRect.width > window.innerWidth) {
+                    left = e.clientX - popupRect.width - offset;
+                }
+                if (top + popupRect.height > window.innerHeight) {
+                    top = e.clientY - popupRect.height - offset;
+                }
+
+                hoverPopup.style.left = `${Math.max(10, left)}px`;
+                hoverPopup.style.top = `${Math.max(10, top)}px`;
+            }
+        });
+
+        function clearConfigStatus() {
+            configStatus.textContent = '';
+            configStatus.className = 'font-semibold text-sm';
+        }
+
+        async function fetchDevices() {
+            try {
+                const res = await fetch('/admin/devices');
+                const data = await res.json();
+                const select = document.getElementById('deviceSelect');
+                select.innerHTML = '';
+
+                if (data.macs && data.macs.length > 0) {
+                    data.macs.forEach(mac => {
+                        const opt = document.createElement('option');
+                        opt.value = mac;
+                        opt.textContent = mac;
+                        select.appendChild(opt);
+                    });
+                    onDeviceChange();
+                } else {
+                    select.innerHTML = '<option value="">No Devices Found</option>';
+                }
+            } catch (err) {
+                console.error('Error fetching devices:', err);
+            }
+        }
+
+        async function onDeviceChange() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            clearConfigStatus();
+            if (!deviceId) return;
+
+            // Fetch device sleep duration
+            try {
+                const res = await fetch(`/admin/${deviceId}/config`);
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('sleepDurationInput').value = data.sleepDurationMin;
+                }
+            } catch (err) {
+                console.error('Error fetching config:', err);
+            }
+
+            // Fetch device images
+            loadDeviceImages(deviceId);
+        }
+
+        async function updateSleepDuration() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            const duration = document.getElementById('sleepDurationInput').value;
+
+            // Validate range between 1 and 1440 minutes (24 hours)
+            if (!deviceId || isNaN(duration) || duration < 1 || duration > 1440) {
+                configStatus.textContent = 'Error: Enter minutes between 1 and 1440';
+                configStatus.className = 'font-semibold text-sm text-red-600';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/admin/${deviceId}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sleepDurationMin: parseInt(duration, 10) })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    configStatus.textContent = 'Done';
+                    configStatus.className = 'font-semibold text-sm text-green-600';
+                } else {
+                    configStatus.textContent = `Error: ${data.error || 'Failed'}`;
+                    configStatus.className = 'font-semibold text-sm text-red-600';
+                }
+            } catch (err) {
+                configStatus.textContent = 'Error: Request failed';
+                configStatus.className = 'font-semibold text-sm text-red-600';
+            }
+        }
+
+        async function loadDeviceImages(deviceId) {
+            const grid = document.getElementById('imageGrid');
+            grid.innerHTML = '<p class="text-gray-500 col-span-full">Loading images...</p>';
+
+            try {
+                const res = await fetch(`/admin/images/${deviceId}`);
+                const data = await res.json();
+                grid.innerHTML = '';
+
+                if (!data.images || data.images.length === 0) {
+                    grid.innerHTML = '<p class="text-gray-400 col-span-full">No images stored for this device.</p>';
+                    return;
+                }
+
+                data.images.forEach(image => {
+                    const card = document.createElement('div');
+                    card.className = "bg-white border rounded-lg shadow-sm p-3 flex flex-col items-center justify-between hover:shadow-md transition";
+
+                    card.innerHTML = `
+                        <div class="w-full h-36 flex flex-col items-center justify-center overflow-hidden rounded bg-gray-50 mb-3 cursor-pointer"
+                             onclick="openModal('${image.ditheredUrl}', '${image.name}')"
+                             onmouseenter="showPopup('${image.ditheredUrl}', '${image.name}')" 
+                             onmouseleave="hidePopup()">
+                            <img src="${image.thumbUrl}" alt="${image.name}" class="object-cover max-h-28 max-w-full rounded mb-1">
+                            <span class="text-xs text-gray-600 font-mono truncate w-full text-center px-1">${image.name}</span>
+                        </div>
+                        <button onclick="deleteImage('${deviceId}', '${image.name}')" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1.5 px-3 rounded transition">
+                            Delete
+                        </button>
+                    `;
+                    grid.appendChild(card);
+                });
+            } catch (err) {
+                grid.innerHTML = '<p class="text-red-500 col-span-full">Failed to load images.</p>';
+            }
+        }
+
+        function showPopup(ditheredUrl, imageName) {
+            hoverImage.src = ditheredUrl;
+            hoverImageTitle.textContent = imageName;
+            hoverPopup.classList.remove('hidden');
+        }
+
+        function hidePopup() {
+            hoverPopup.classList.add('hidden');
+            hoverImage.src = '';
+            hoverImageTitle.textContent = '';
+        }
+
+        // Open 100% full-resolution modal
+        function openModal(ditheredUrl, imageName) {
+            hidePopup();
+            const modal = document.getElementById('imageModal');
+            document.getElementById('modalImage').src = ditheredUrl;
+            document.getElementById('modalTitle').textContent = `${imageName} (1600x1200 Native)`;
+            modal.classList.remove('hidden');
+        }
+
+        // Close 100% full-resolution modal
+        function closeModal() {
+            const modal = document.getElementById('imageModal');
+            modal.classList.add('hidden');
+            document.getElementById('modalImage').src = '';
+        }
+
+        async function deleteImage(deviceId, imageName) {
+            if (!confirm(`Are you sure you want to delete ${imageName}?`)) return;
+
+            try {
+                const res = await fetch(`/admin/image/${deviceId}/${imageName}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    hidePopup();
+                    closeModal();
+                    loadDeviceImages(deviceId);
+                } else {
+                    alert(`Delete failed: ${data.error}`);
+                }
+            } catch (err) {
+                alert('Failed to delete image.');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -40,6 +40,7 @@ RTC_DATA_ATTR char server_ip_str[16] = {0};
 RTC_DATA_ATTR int server_http_port = 0;
 RTC_DATA_ATTR static size_t current_playlist_index = 0;
 RTC_DATA_ATTR static size_t total_playlist_count = 0;
+RTC_DATA_ATTR static uint16_t sleep_duration_min = 240; // Default: 240 min (4 hours)
 								
 // Wakeup Trigger Actions
 typedef enum {
@@ -181,8 +182,9 @@ extern "C" void app_main(void)
     bool is_connected = dppEnrolle.dpp_enrollee_init(&esp32_wifi_config); 
 
     if (!is_connected) {
-        ESP_LOGE(TAG, "Failed to establish Wi-Fi within 5 minutes. Entering deep sleep...");
-        esp_deep_sleep(SLEEP_DURATION_US);
+		uint64_t sleep_duration_us = (uint64_t)sleep_duration_min * 60ULL * 1000000ULL;
+        ESP_LOGE(TAG, "Failed to establish Wi-Fi within 5 minutes. Entering deep sleep for %u minutes (%llu us)...", sleep_duration_min, sleep_duration_us);
+        esp_deep_sleep(sleep_duration_us);
         return;
     }
 
@@ -199,7 +201,7 @@ extern "C" void app_main(void)
 	// try to connect server, and sync the file list
     if (serverComm.connect_server(server_ip_str, server_http_port)){
 		
-		if (serverComm.sync_image_list(server_ip_str, server_http_port)){
+		if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)){
 			// has file changed, rescan file index
 			ESP_LOGI(TAG, "Have file changes. Rescan file index");
 			total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
@@ -242,8 +244,12 @@ extern "C" void app_main(void)
 	reset_button_wakeups();
 	
 	dppEnrolle.log_current_time();
-	ESP_LOGI(TAG, "Enter deep sleep");
-	esp_deep_sleep(SLEEP_DURATION_US);	// sleep 1 minutes for testing
+	
+	// Calculate sleep duration in microseconds: min * 60 sec * 1,000,000 us
+	uint64_t sleep_duration_us = (uint64_t)sleep_duration_min * 60ULL * 1000000ULL;
+
+	ESP_LOGI(TAG, "Entering deep sleep for %u minutes (%llu us)...", sleep_duration_min, sleep_duration_us);
+	esp_deep_sleep(sleep_duration_us);
 }
 
 

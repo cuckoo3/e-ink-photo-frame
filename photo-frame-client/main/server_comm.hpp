@@ -14,7 +14,7 @@ class ServerComm {
 		 */
 //		static void fetch_display_data(const char *server_ip, int server_port);
 
-		bool sync_image_list(const char *server_ip, const int server_port);
+		bool sync_image_list(const char *server_ip, const int server_port, uint16_t &sleep_duration_min);
 		
 		const std::string get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url);
 		
