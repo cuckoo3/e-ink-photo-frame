@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include "comm.h"
 #include "pindefine.h"
-#include "status.h"
 
 #define SPI	SPI3_HOST
 #define SPI_MAX_BUFFER_SIZE	32768

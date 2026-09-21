@@ -11,7 +11,6 @@ extern "C" {
 	#include "esp_sntp.h"
 	#include "GDEP133C02.h"
 	#include "comm.h"
-	#include "status.h"
 	#include "esp_wifi.h"
 }
 

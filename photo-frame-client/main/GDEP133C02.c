@@ -6,10 +6,11 @@
 #include "GDEP133C02.h"
 #include "pindefine.h"
 #include "comm.h"
-#include "status.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 
+#define ERROR 1
+#define DONE 0
 
 /*
  * Resolution:
