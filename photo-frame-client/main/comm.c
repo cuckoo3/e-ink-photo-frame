@@ -109,7 +109,7 @@ esp_err_t spiTransmitCommand(unsigned char commandBuf)
 
 }
 
-esp_err_t spiTransmitData(unsigned char *dataBuffer, unsigned long dataLength)
+esp_err_t spiTransmitData(const unsigned char *dataBuffer, unsigned long dataLength)
 {
 	esp_err_t status=0;
 

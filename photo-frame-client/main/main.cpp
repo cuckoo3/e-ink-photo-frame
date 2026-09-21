@@ -138,6 +138,7 @@ extern "C" void app_main(void)
         }
 	}
 	
+	displayHandler.sleep();
 	dppEnrolle.log_current_time();
 	ESP_LOGI(TAG, "Enter deep sleep");
 	esp_deep_sleep(SLEEP_DURATION_US);	// sleep 1 minutes for testing

@@ -25,7 +25,6 @@ inline static constexpr std::size_t CURVE_SEC256R1_PKEY_HEX_DIGITS = 64;
 wifi_config_t *s_dpp_wifi_config = NULL;
 
 static int s_retry_num = 0;
-static bool s_is_dpp_mode = false;
 
 /* FreeRTOS event group to signal network state */
 static EventGroupHandle_t s_dpp_event_group;

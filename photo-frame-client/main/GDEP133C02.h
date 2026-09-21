@@ -39,6 +39,12 @@
 #define PTLW_ENABLE  0x01
 #define PTLW_DISABLE 0x00
 
+#define TSC     0x40  // Temperature Sensor Control/Read
+#define TSSET   0xE5  // Temperature Sensor Set (for waveform compensation)
+
+#define CCSET_CUR   0x01  // Select current temperature (matches CCSET_V in original code)
+#define CCSET_LOCK  0x03  // Lock temperature
+
 // Image buffer for sending image
 #define EPD_IMAGE_DATA_BUFFER 8192 // MCU RAM Size (800*720/2) reserve for one driver IC
 
@@ -71,8 +77,6 @@ __GDEP133C02_EXTERN__ const unsigned char TFT_VCOM_POWER_V[1];
 __GDEP133C02_EXTERN__ const unsigned char POF_V[1];
 __GDEP133C02_EXTERN__ const unsigned char DRF_V[1];
 
-
-
 __GDEP133C02_EXTERN__ void epdHardwareReset(void);
 __GDEP133C02_EXTERN__ void setPinCsAll(unsigned int setLevel);
 __GDEP133C02_EXTERN__ void setPinCs(unsigned char csNumber, unsigned int setLevel);
@@ -85,6 +89,8 @@ __GDEP133C02_EXTERN__ void writeEpdCommand(unsigned char epdCommand);
 __GDEP133C02_EXTERN__ void writeEpdData(const unsigned char *epdData, unsigned int epdDataLength);
 __GDEP133C02_EXTERN__ void epdDisplay(void);
 __GDEP133C02_EXTERN__ void epdDisplayColor(unsigned char colorSelect);
+__GDEP133C02_EXTERN__ void epdSleep(void);
+
 /**
  * @brief Sends framebuffer data to a specific driver IC (Master or Slave).
  * @param csx CS pin index (0 for Master CS0, 1 for Slave CS1)

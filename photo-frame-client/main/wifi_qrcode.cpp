@@ -77,7 +77,6 @@ void WifiQrcode::_epd_qrcode_display_cb(esp_qrcode_handle_t qrcode)
 	                 uint32_t py = y * QR_SCALE + sy;
 
 					 // 180° rotation
-					 uint32_t rotated_x = qr_pixel_size - 1 - px;
 					 uint32_t rotated_y = qr_pixel_size - 1 - py;
 
 					 uint32_t byte_index = rotated_y * width_bytes + (px / 2);

@@ -15,7 +15,7 @@
 
 //==============   GPIO Setting   ==============//
 //Please modify the pin number
-#define EPD_BUSY	7   // Please set it as input pin
+#define EPD_BUSY		7   // Please set it as input pin
 #define EPD_RST		6   // Please set it as output pin
 #define LOAD_SW		45  // Please set it as output pin
 

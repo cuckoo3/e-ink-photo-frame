@@ -223,13 +223,11 @@ bool ServerComm::sync_image_list(const char *server_ip, const int server_port)
     // 2. Configure HTTP Client
     http_response_buffer_t response_buf = { .data = NULL, .len = 0 };
 
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 5000,
-        .event_handler = _http_event_handler,
-        .user_data = &response_buf,
-    };
+    esp_http_client_config_t config = {};
+	config.url = url;
+	config.method = HTTP_METHOD_POST;
+	config.event_handler = _http_event_handler;
+	config.user_data = &response_buf;
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
 

@@ -10,8 +10,49 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 
+
+/*
+ * Resolution:
+ *     1200 x 1600
+ *
+ * 4 bits per pixel:
+ *     1200 / 2 = 600 bytes per line
+ *
+ * Dual controller:
+ *     Master: 600 pixels = 300 bytes per line
+ *     Slave : 600 pixels = 300 bytes per line
+ *
+ * Image layout:
+ *
+ *     |<---------------- 1200 pixels ---------------->|
+ *
+ *     |<---- 600 ---->|<-------- 600 -------->|
+ *     |   MASTER      |       SLAVE           |
+ *
+ *     Each line:
+ *
+ *         300 bytes    +    300 bytes
+ *
+ * IMPORTANT:
+ *
+ * DTM (0x10) must be sent only ONCE for each
+ * controller. CS must remain LOW during the complete
+ * image transfer.
+ *
+ * This follows the verified continuous-transfer
+ * sequence used by the original dual-controller
+ * display driver.
+ */
+
 static const char *TAG = "GDEP133C02";
 
+unsigned char currentTemperature = 25;  // default 25°C, update after first read
+unsigned char tempBuf[2] = {0};
+
+/*
+SPI_CS0: master display
+SPI_CS1: slave display
+*/
 const unsigned char spiCsPin[2] = {
 		SPI_CS0, SPI_CS1
 };
@@ -127,7 +168,7 @@ void writeEpdCommand(unsigned char epdCommand)
 
 void writeEpdData(const unsigned char *epdData, unsigned int epdDataLength)
 {
-	spiTransmitData(epdData, epdDataLength);
+	spiTransmitData((unsigned char *)epdData, epdDataLength);
 }
 
 void initEPD(void)
@@ -224,7 +265,6 @@ unsigned char checkDriverICStatus(void)
 			ESP_LOGE(TAG, "Driver IC [%d] did not reply.",csx);
 			status = ERROR;
 		}
-
 	}
 
 	return status;
@@ -598,66 +638,25 @@ void pic_display_from_file(const char *filepath)
     ESP_LOGI(TAG, "Rendering completed successfully with seam alignment fix.");
 }
 
+/**
+ * Put EPD driver into sleep mode and turn off physical display power via LOAD_SW.
+ */
+void epdSleep(void)
+{
+    // 1. Select all driver ICs (CS0 and CS1)
+    setPinCsAll(GPIO_LOW);
 
-//void pic_display_from_file(const char *filepath)
-//{
-//    FILE *f = fopen(filepath, "rb");
-//    if (!f) {
-//        printf("Failed to open image file from LittleFS: %s\n", filepath);
-//        return;
-//    }
-//
-//    unsigned int Width = (EPD_WIDTH % 2 == 0) ? (EPD_WIDTH / 2) : (EPD_WIDTH / 2 + 1);
-//    unsigned int Width1 = (Width % 2 == 0) ? (Width / 2) : (Width / 2 + 1);
-//    unsigned int Height = EPD_HEIGHT;
-//
-//    // Allocate buffer for a single horizontal row across both sections
-//    size_t fullRowBytes = Width1 * 2;
-//    unsigned char *rowBuf = (unsigned char *)malloc(fullRowBytes);
-//    if (!rowBuf) {
-//        printf("Failed to allocate row buffer!\n");
-//        fclose(f);
-//        return;
-//    }
-//
-//    // --- Pass 1: Transfer data to Master Controller (CS 0) ---
-//    setPinCsAll(GPIO_HIGH);
-//    setPinCs(0, 0);
-//    writeEpdCommand(DTM);
-//
-//    for (unsigned int i = 0; i < Height; i++) {
-//        // Seek to start of row i
-//        fseek(f, i * fullRowBytes, SEEK_SET);
-//        fread(rowBuf, 1, fullRowBytes, f);
-//
-//        // Send first half of row data (Width1 bytes)
-//        writeEpdData(rowBuf, Width1);
-//        vTaskDelay(pdMS_TO_TICKS(1));
-//    }
-//    setPinCsAll(GPIO_HIGH);
-//
-//    // --- Pass 2: Transfer data to Slave Controller (CS 1) ---
-//    setPinCs(1, 0);
-//    writeEpdCommand(DTM);
-//
-//    for (unsigned int i = 0; i < Height; i++) {
-//        // Seek to start of row i
-//        fseek(f, i * fullRowBytes, SEEK_SET);
-//        fread(rowBuf, 1, fullRowBytes, f);
-//
-//        // Send second half of row data (offset by Width1)
-//        writeEpdData(rowBuf + Width1, Width1);
-//        vTaskDelay(pdMS_TO_TICKS(1));
-//    }
-//    setPinCsAll(GPIO_HIGH);
-//
-//    // Cleanup resources
-//    free(rowBuf);
-//    fclose(f);
-//
-//    // Trigger physical panel refresh
-//    epdDisplay();
-//    vTaskDelay(pdMS_TO_TICKS(10));
-//    printf("Rendering from LittleFS completed\r\n");
-//}
+    // 2. Send Power OFF command (POF = 0x02) with 0xA5 sleep parameter
+    writeEpd(POF, (const unsigned char[]){0xA5}, 1);
 
+    // 3. Deselect all CS pins
+    setPinCsAll(GPIO_HIGH);
+
+    // 4. Wait for internal high-voltage charge pumps to safely discharge
+    delayms(20);
+
+    // 5. Cut off physical power supply to the display via Load Switch
+    setGpioLevel(LOAD_SW, GPIO_LOW);
+
+    ESP_LOGI(TAG, "EPD entered sleep mode and LOAD_SW power disabled.");
+}

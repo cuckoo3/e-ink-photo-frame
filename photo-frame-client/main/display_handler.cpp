@@ -23,6 +23,11 @@ void DisplayHandler::init_display()
 	ESP_LOGI(TAG, "Initiate e-ink display done");
 }
 
+void DisplayHandler::sleep()
+{
+	epdSleep();
+}
+
 void DisplayHandler::_clear_screen_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Async screen clear starting...");

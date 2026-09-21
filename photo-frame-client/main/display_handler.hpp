@@ -11,8 +11,9 @@ class DisplayHandler {
 		 * Performs hardware initialization including GPIO setup, SPI initialization,
 		 * power management, and EPD initialization.
 		 */
-		static void init_display();
-		static void clearScreenAsync();
+		void init_display();
+		void sleep();
+		void clearScreenAsync();
 		void display_image(const char *filepath);
 		void display_image_array(const unsigned char *gImage);
 	
