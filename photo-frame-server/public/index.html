@@ -3,95 +3,185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-Paper Device & Image Manager</title>
+    <title>E-Paper Studio & Device Manager</title>
+    <!-- Tailwind CSS CDN -->
     <script src="/js/tailwindcss.js"></script>
+    <style>
+        /* Responsive 1:1 Canvas Display */
+        canvas#canvas {
+            width: 100% !important;
+            max-width: 1600px !important;
+            height: auto !important;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            background-color: #ffffff;
+            display: block;
+        }
+
+        #upload {
+            display: none;
+        }
+
+        /* Drag and Drop Hover Styles */
+        .drop-zone--over {
+            border-color: #2563eb !important;
+            background-color: #eff6ff !important;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 text-gray-800 min-h-screen p-6">
 
-    <div class="max-w-6xl mx-auto bg-white rounded-lg shadow-md p-6">
-        <h1 class="text-2xl font-bold mb-6 text-gray-900 border-b pb-3">E-Paper Image Management</h1>
+    <div class="max-w-[1670px] w-full mx-auto space-y-6">
+        
+        <!-- Header & Global Device Selector -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between border-b pb-4 mb-4 gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">E-Paper Studio</h1>
+                    <p class="text-sm text-gray-500">Image processing and device management portal</p>
+                </div>
 
-        <!-- Top Controls Section -->
-        <div class="space-y-6 mb-8">
-            <!-- 1. Device Dropdown -->
-            <div class="flex items-center space-x-4">
-                <label for="deviceSelect" class="font-semibold text-gray-700 w-44">Select Device:</label>
-                <select id="deviceSelect" class="border border-gray-300 rounded px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-64" onchange="onDeviceChange()">
-                    <option value="">-- Loading Devices --</option>
-                </select>
+                <!-- Shared Master Device Dropdown -->
+                <div class="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <label for="deviceSelect" class="font-semibold text-gray-700 whitespace-nowrap">Target Device:</label>
+                    <select id="deviceSelect" onchange="onDeviceChange()" class="border border-gray-300 rounded px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[220px]">
+                        <option value="">-- Loading Devices --</option>
+                    </select>
+                </div>
             </div>
 
-            <!-- 2. Sleep Duration Edit Box & Submit Button -->
-            <div class="flex items-center space-x-4">
-                <label for="sleepDurationInput" class="font-semibold text-gray-700 w-44">Sleep Duration (minutes):</label>
-                <input type="number" id="sleepDurationInput" min="1" max="1440" placeholder="e.g. 240 (max 1440)" 
+            <!-- Global Sleep Config Bar -->
+            <div class="flex flex-wrap items-center space-x-4 bg-blue-50/50 p-3 rounded-md border border-blue-100">
+                <label for="sleepDurationInput" class="font-semibold text-gray-700">Sleep Duration (min):</label>
+                <input type="number" id="sleepDurationInput" min="1" max="1440" placeholder="e.g. 240" 
                        onfocus="clearConfigStatus()" 
-                       class="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
-                <button onclick="updateSleepDuration()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded transition">
-                    Submit
+                       class="border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-32 bg-white">
+                <button onclick="updateSleepDuration()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-1.5 rounded transition shadow-sm text-sm">
+                    Save Config
                 </button>
                 <span id="configStatus" class="font-semibold text-sm"></span>
             </div>
+        </div>
 
-            <!-- 3. Link to dithering Tool -->
-            <div>
-                <a href="ditheringTool.htm" target="_blank" class="inline-flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded transition">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                    Open Dithering Tool
-                </a>
+        <!-- SECTION 1: TOP TOOL - Image Dithering Workspace -->
+        <div class="bg-white rounded-lg shadow-md p-6 text-center">
+            <h2 class="text-xl font-bold text-gray-800 text-left mb-4 border-b pb-2 flex items-center justify-between">
+                <span class="flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    Image Dithering Tool
+                </span>
+            </h2>
+
+            <!-- Controls Row -->
+            <div class="flex flex-wrap items-center justify-center gap-4 mb-4">
+                <label for="upload" class="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded cursor-pointer transition">
+                    Browse Image
+                </label>
+                <input type="file" id="upload" accept="image/*">
+
+                <div class="flex items-center space-x-2">
+                    <label for="dither-options" class="font-semibold text-gray-700">Algorithm:</label>
+                    <select id="dither-options" class="border border-gray-300 rounded px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="floyd-steinberg">Floyd-Steinberg</option>
+                        <option value="jjn" selected="selected">Jarvis-Judice-Ninke (JJN)</option>
+                        <option value="stucki">Stucki</option>
+                    </select>
+                </div>
+
+                <button id="download" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded transition">
+                    Download PNG
+                </button>
+                <button id="upload-server" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded transition">
+                    Upload to Target Device
+                </button>
+
+                <span id="render-status" class="font-bold text-emerald-700 hidden">Done</span>
+            </div>
+
+            <!-- Canvas Container / Drop Zone -->
+            <div id="drop-zone" class="w-full border-2 border-dashed border-gray-300 rounded-lg p-2 bg-gray-50 flex flex-col justify-center items-center overflow-hidden transition-all duration-150 cursor-pointer relative group">
+                <canvas id="canvas" width="1600" height="1200"></canvas>
+                <!-- Overlay prompt shown before loading an image -->
+                <div id="drop-prompt" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/80 pointer-events-none transition-opacity">
+                    <svg class="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p class="text-sm text-gray-600 font-medium">Drag & Drop an image here or click Browse Image</p>
+                </div>
             </div>
         </div>
 
-        <hr class="my-6">
+        <!-- SECTION 2: BOTTOM TOOL - Photo Management Gallery -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    Device Gallery & Stored Assets
+                </h2>
+                <button onclick="onDeviceChange()" class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded transition">
+                    Refresh Gallery
+                </button>
+            </div>
 
-        <!-- 4. Image Gallery List -->
-        <h2 class="text-xl font-semibold mb-4 text-gray-800">Device Gallery</h2>
-        <div id="imageGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-            <!-- Image thumbnails populate dynamically -->
+            <div id="imageGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                <!-- Populated dynamically -->
+            </div>
         </div>
+
     </div>
 
-    <!-- Hover Popup Layer for Dithered Preview -->
+    <!-- Modals & Tooltips -->
     <div id="hoverPopup" class="fixed hidden pointer-events-none z-50 bg-black bg-opacity-90 p-3 rounded-lg shadow-2xl border border-gray-600">
-        <!-- Dynamic Image Name Header -->
         <p id="hoverImageTitle" class="text-sm font-semibold text-gray-200 mb-2 text-center font-mono truncate max-w-md"></p>
-        <!-- Scaled-up Preview Image -->
         <img id="hoverImage" src="" alt="Dithered Preview" class="max-w-md max-h-[500px] rounded object-contain">
     </div>
 
-    <!-- Full 100% Resolution Lightbox Modal (Click to View 1600x1200) -->
     <div id="imageModal" class="fixed inset-0 hidden z-50 bg-black bg-opacity-80 flex items-center justify-center p-4" onclick="closeModal()">
         <div class="bg-gray-900 border border-gray-700 p-4 rounded-lg max-w-[95vw] max-h-[95vh] flex flex-col items-center shadow-2xl" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center w-full mb-2">
                 <h3 id="modalTitle" class="text-white font-mono text-sm font-semibold"></h3>
                 <button onclick="closeModal()" class="text-gray-400 hover:text-white font-bold text-xl px-2">&times;</button>
             </div>
-            <!-- Scrollable container preserving 1600x1200 native pixels -->
             <div class="overflow-auto max-w-[90vw] max-h-[85vh] border border-gray-800 rounded">
                 <img id="modalImage" src="" alt="100% Dithered Image" class="w-[1600px] h-[1200px] max-w-none object-contain">
             </div>
         </div>
     </div>
 
+    <script src="/js/dither.js"></script>
     <script>
+        const deviceSelect = document.getElementById('deviceSelect');
+        const configStatus = document.getElementById('configStatus');
+        const sleepDurationInput = document.getElementById('sleepDurationInput');
+
+        const uploadInput = document.getElementById('upload');
+        const dropZone = document.getElementById('drop-zone');
+        const dropPrompt = document.getElementById('drop-prompt');
+        const ditherOptions = document.getElementById('dither-options');
+        const downloadButton = document.getElementById('download');
+        const uploadServerButton = document.getElementById('upload-server');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const renderStatus = document.getElementById('render-status');
+
         const hoverPopup = document.getElementById('hoverPopup');
         const hoverImage = document.getElementById('hoverImage');
         const hoverImageTitle = document.getElementById('hoverImageTitle');
-        const configStatus = document.getElementById('configStatus');
 
-        // Initialize page data
+        let currentLoadedImage = null;
+        let currentOffscreenCanvas = null;
+        let originalFileName = 'image.png';
+
         document.addEventListener('DOMContentLoaded', () => {
             fetchDevices();
         });
 
-        // Track cursor position with edge detection to prevent viewport overflow
         document.addEventListener('mousemove', (e) => {
             if (!hoverPopup.classList.contains('hidden')) {
                 const offset = 15;
                 let left = e.clientX + offset;
                 let top = e.clientY + offset;
 
-                // Edge checking for viewport overflow
                 const popupRect = hoverPopup.getBoundingClientRect();
                 if (left + popupRect.width > window.innerWidth) {
                     left = e.clientX - popupRect.width - offset;
@@ -105,75 +195,128 @@
             }
         });
 
-        function clearConfigStatus() {
-            configStatus.textContent = '';
-            configStatus.className = 'font-semibold text-sm';
+        // ================= Drag and Drop Logic =================
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
         }
 
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('drop-zone--over'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('drop-zone--over'), false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files && files.length > 0) {
+                handleImageFile(files[0]);
+            }
+        });
+
+        uploadInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                handleImageFile(file);
+            }
+        });
+
+        function handleImageFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please drop an image file.');
+                return;
+            }
+            originalFileName = file.name;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    currentLoadedImage = img;
+                    dropPrompt.classList.add('hidden'); // Hide drop hint once loaded
+                    startProcessing();
+                }
+                img.src = e.target.result;
+            }
+            reader.readAsDataURL(file);
+        }
+
+        // ================= Device & Config Logic =================
         async function fetchDevices() {
             try {
-                const res = await fetch('/admin/devices');
-                const data = await res.json();
-                const select = document.getElementById('deviceSelect');
-                select.innerHTML = '';
+                const response = await fetch('/admin/devices');
+                if (!response.ok) throw new Error('Failed to fetch devices');
+
+                const data = await response.json();
+                deviceSelect.innerHTML = '';
 
                 if (data.macs && data.macs.length > 0) {
                     data.macs.forEach(mac => {
-                        const opt = document.createElement('option');
-                        opt.value = mac;
-                        opt.textContent = mac;
-                        select.appendChild(opt);
+                        const option = document.createElement('option');
+                        option.value = mac;
+                        option.textContent = mac;
+                        deviceSelect.appendChild(option);
                     });
                     onDeviceChange();
                 } else {
-                    select.innerHTML = '<option value="">No Devices Found</option>';
+                    deviceSelect.innerHTML = '<option value="">No devices found</option>';
                 }
-            } catch (err) {
-                console.error('Error fetching devices:', err);
+            } catch (error) {
+                console.error('Error fetching device list:', error);
+                deviceSelect.innerHTML = '<option value="">Error loading devices</option>';
             }
         }
 
         async function onDeviceChange() {
-            const deviceId = document.getElementById('deviceSelect').value;
+            const selectedMac = deviceSelect.value;
             clearConfigStatus();
-            if (!deviceId) return;
+            if (!selectedMac) return;
 
-            // Fetch device sleep duration
             try {
-                const res = await fetch(`/admin/${deviceId}/config`);
+                const res = await fetch(`/admin/${selectedMac}/config`);
                 const data = await res.json();
                 if (data.success) {
-                    document.getElementById('sleepDurationInput').value = data.sleepDurationMin;
+                    sleepDurationInput.value = data.sleepDurationMin;
                 }
             } catch (err) {
                 console.error('Error fetching config:', err);
             }
 
-            // Fetch device images
-            loadDeviceImages(deviceId);
+            loadDeviceImages(selectedMac);
+        }
+
+        function clearConfigStatus() {
+            configStatus.textContent = '';
+            configStatus.className = 'font-semibold text-sm';
         }
 
         async function updateSleepDuration() {
-            const deviceId = document.getElementById('deviceSelect').value;
-            const duration = document.getElementById('sleepDurationInput').value;
+            const selectedMac = deviceSelect.value;
+            const duration = sleepDurationInput.value;
 
-            // Validate range between 1 and 1440 minutes (24 hours)
-            if (!deviceId || isNaN(duration) || duration < 1 || duration > 1440) {
+            if (!selectedMac || isNaN(duration) || duration < 1 || duration > 1440) {
                 configStatus.textContent = 'Error: Enter minutes between 1 and 1440';
                 configStatus.className = 'font-semibold text-sm text-red-600';
                 return;
             }
 
             try {
-                const res = await fetch(`/admin/${deviceId}/config`, {
+                const res = await fetch(`/admin/${selectedMac}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sleepDurationMin: parseInt(duration, 10) })
                 });
                 const data = await res.json();
                 if (data.success) {
-                    configStatus.textContent = 'Done';
-                    configStatus.className = 'font-semibold text-sm text-green-600';
+                    configStatus.textContent = 'Saved successfully!';
+                    configStatus.className = 'font-semibold text-sm text-emerald-600';
                 } else {
                     configStatus.textContent = `Error: ${data.error || 'Failed'}`;
                     configStatus.className = 'font-semibold text-sm text-red-600';
@@ -184,9 +327,102 @@
             }
         }
 
+        ditherOptions.addEventListener('change', () => {
+            if (currentLoadedImage) {
+                startProcessing();
+            }
+        });
+
+        downloadButton.addEventListener('click', () => {
+            if (!currentLoadedImage) {
+                alert('Please load an image first.');
+                return;
+            }
+            const link = document.createElement('a');
+            link.download = 'dithered_image.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+
+        if (uploadServerButton) {
+            uploadServerButton.addEventListener('click', async () => {
+                if (!currentLoadedImage || !currentOffscreenCanvas) {
+                    alert('Please load an image first.');
+                    return;
+                }
+
+                const selectedMac = deviceSelect.value;
+                if (!selectedMac) {
+                    alert('Please select a valid target device.');
+                    return;
+                }
+
+                renderStatus.textContent = 'Uploading...';
+                renderStatus.className = 'font-bold text-blue-600 inline';
+
+                try {
+                    const originalBlob = await new Promise(resolve => currentOffscreenCanvas.toBlob(resolve, 'image/jpeg', 0.8));
+                    const ditheredBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+
+                    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
+
+                    const formData = new FormData();
+                    formData.append('mac', selectedMac);
+                    formData.append('original', originalBlob, `${baseName}.jpg`);
+                    formData.append('dithered', ditheredBlob, `${baseName}.png`);
+
+                    const response = await fetch('/admin/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        renderStatus.textContent = 'Uploaded successfully!';
+                        renderStatus.className = 'font-bold text-emerald-600 inline';
+                        loadDeviceImages(selectedMac);
+                    } else {
+                        renderStatus.textContent = 'Upload failed.';
+                        renderStatus.className = 'font-bold text-red-600 inline';
+                    }
+                } catch (error) {
+                    console.error('Upload Error:', error);
+                    renderStatus.textContent = 'Error uploading.';
+                    renderStatus.className = 'font-bold text-red-600 inline';
+                }
+            });
+        }
+
+        function startProcessing() {
+            renderStatus.textContent = 'Processing...';
+            renderStatus.className = 'font-bold text-blue-600 inline';
+
+            setTimeout(() => {
+                renderAndDither();
+            }, 20);
+        }
+
+        function renderAndDither() {
+            if (!currentLoadedImage) return;
+
+            currentOffscreenCanvas = getScaledAndCroppedCanvas(currentLoadedImage);
+
+            canvas.width = currentOffscreenCanvas.width;
+            canvas.height = currentOffscreenCanvas.height;
+
+            const offCtx = currentOffscreenCanvas.getContext('2d');
+            const originalImageData = offCtx.getImageData(0, 0, canvas.width, canvas.height);
+
+            applyDitheringToBuffer(originalImageData, ditherOptions.value);
+
+            ctx.putImageData(originalImageData, 0, 0);
+
+            renderStatus.textContent = 'Done';
+            renderStatus.className = 'font-bold text-emerald-600 inline';
+        }
+
         async function loadDeviceImages(deviceId) {
             const grid = document.getElementById('imageGrid');
-            grid.innerHTML = '<p class="text-gray-500 col-span-full">Loading images...</p>';
+            grid.innerHTML = '<p class="text-gray-500 col-span-full text-center py-4">Loading images...</p>';
 
             try {
                 const res = await fetch(`/admin/images/${deviceId}`);
@@ -194,7 +430,7 @@
                 grid.innerHTML = '';
 
                 if (!data.images || data.images.length === 0) {
-                    grid.innerHTML = '<p class="text-gray-400 col-span-full">No images stored for this device.</p>';
+                    grid.innerHTML = '<p class="text-gray-400 col-span-full text-center py-4">No images stored for this device.</p>';
                     return;
                 }
 
@@ -217,7 +453,7 @@
                     grid.appendChild(card);
                 });
             } catch (err) {
-                grid.innerHTML = '<p class="text-red-500 col-span-full">Failed to load images.</p>';
+                grid.innerHTML = '<p class="text-red-500 col-span-full text-center py-4">Failed to load images.</p>';
             }
         }
 
@@ -233,16 +469,14 @@
             hoverImageTitle.textContent = '';
         }
 
-        // Open 100% full-resolution modal
         function openModal(ditheredUrl, imageName) {
             hidePopup();
             const modal = document.getElementById('imageModal');
             document.getElementById('modalImage').src = ditheredUrl;
-            document.getElementById('modalTitle').textContent = `${imageName} (1600x1200 Native)`;
+            document.getElementById('modalTitle').textContent = `${imageName}`;
             modal.classList.remove('hidden');
         }
 
-        // Close 100% full-resolution modal
         function closeModal() {
             const modal = document.getElementById('imageModal');
             modal.classList.add('hidden');
