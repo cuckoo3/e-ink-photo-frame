@@ -1,0 +1,663 @@
+
+#define __GDEP133C02_C__
+
+#include <stdio.h>
+#include <string.h>
+#include "GDEP133C02.h"
+#include "pindefine.h"
+#include "comm.h"
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+
+#define ERROR 1
+#define DONE 0
+
+/*
+ * Resolution:
+ *     1200 x 1600
+ *
+ * 4 bits per pixel:
+ *     1200 / 2 = 600 bytes per line
+ *
+ * Dual controller:
+ *     Master: 600 pixels = 300 bytes per line
+ *     Slave : 600 pixels = 300 bytes per line
+ *
+ * Image layout:
+ *
+ *     |<---------------- 1200 pixels ---------------->|
+ *
+ *     |<---- 600 ---->|<-------- 600 -------->|
+ *     |   MASTER      |       SLAVE           |
+ *
+ *     Each line:
+ *
+ *         300 bytes    +    300 bytes
+ *
+ * IMPORTANT:
+ *
+ * DTM (0x10) must be sent only ONCE for each
+ * controller. CS must remain LOW during the complete
+ * image transfer.
+ *
+ * This follows the verified continuous-transfer
+ * sequence used by the original dual-controller
+ * display driver.
+ */
+
+static const char *TAG = "GDEP133C02";
+
+unsigned char currentTemperature = 25;  // default 25°C, update after first read
+unsigned char tempBuf[2] = {0};
+
+/*
+SPI_CS0: master display
+SPI_CS1: slave display
+*/
+const unsigned char spiCsPin[2] = {
+		SPI_CS0, SPI_CS1
+};
+const unsigned char PSR_V[2] = {
+	0xDF, 0x69
+};
+const unsigned char PWR_V[6] = {
+	0x0F, 0x00, 0x28, 0x2C, 0x28, 0x38
+};
+const unsigned char POF_V[1] = {
+	0x00
+};
+const unsigned char DRF_V[1] = {
+	0x01
+};
+const unsigned char CDI_V[1] = {
+	0xF7
+};
+const unsigned char TCON_V[2] = {
+	0x03, 0x03
+};
+const unsigned char TRES_V[4] = {
+	0x04, 0xB0, 0x03, 0x20
+};
+const unsigned char CMD66_V[6] = {
+	0x49, 0x55, 0x13, 0x5D, 0x05, 0x10
+};
+const unsigned char EN_BUF_V[1] = {
+	0x07
+};
+const unsigned char CCSET_V[1] = {
+	0x01
+};
+const unsigned char PWS_V[1] = {
+	0x22
+};
+const unsigned char AN_TM_V[9] = {
+	0xC0, 0x1E, 0x1E, 0xCE, 0xCE, 0xCE, 0x15, 0x15, 0x55
+};
+
+const unsigned char AGID_V[1] = {
+	0x10
+};
+
+const unsigned char BTST_P_V[2] = {
+	0xE8, 0x28
+};
+const unsigned char BOOST_VDDP_EN_V[1] = {
+	0x01
+};
+const unsigned char BTST_N_V[2] = {
+	0xE8, 0x28
+};
+const unsigned char BUCK_BOOST_VDDN_V[1] = {
+	0x01
+};
+const unsigned char TFT_VCOM_POWER_V[1] = {
+	0x02
+};
+
+char partialWindowUpdateStatus = DONE;
+
+//================== GPIO Setting ====================================
+void resetPin(unsigned int pinStatus)
+{
+	setGpioLevel(EPD_RST, pinStatus);
+}
+
+void setPinCsAll(unsigned int setLevel){
+	unsigned char i;
+	for(i=0;i<2;i++)
+	{
+		setGpioLevel(spiCsPin[i], setLevel);
+	}
+}
+
+void setPinCs(unsigned char csNumber, unsigned int setLevel){
+	setGpioLevel(spiCsPin[csNumber], setLevel);
+}
+void checkBusyHigh(void)// If BUSYN=0 then waiting
+{
+	while(!(getGpioLevel(EPD_BUSY)));
+}
+
+void checkBusyLow(void)// If BUSYN=1 then waiting
+{
+	while(getGpioLevel(EPD_BUSY));
+}
+//====================================================================
+
+void epdHardwareReset(void)
+{
+	resetPin(GPIO_LOW);
+	delayms(20);
+	resetPin(GPIO_HIGH);
+	delayms(20);
+}
+
+void writeEpd(unsigned char epdCommand, const unsigned char *epdData, unsigned int epdDataLength)
+{
+	spiTransmit(epdCommand, (unsigned char *)epdData, epdDataLength);
+}
+
+void readEpd(unsigned char epdCommand, unsigned char *epdData, unsigned int epdDataLength)
+{
+	spiReceive(epdCommand, epdData, epdDataLength);
+}
+
+void writeEpdCommand(unsigned char epdCommand)
+{
+	spiTransmitCommand(epdCommand);
+}
+
+void writeEpdData(const unsigned char *epdData, unsigned int epdDataLength)
+{
+	spiTransmitData((unsigned char *)epdData, epdDataLength);
+}
+
+void initEPD(void)
+{
+	epdHardwareReset();
+	checkBusyHigh();
+	//checkBusyLow();
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(AN_TM, AN_TM_V, sizeof(AN_TM_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(CMD66, CMD66_V, sizeof(CMD66_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(PSR, PSR_V, sizeof(PSR_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(CDI, CDI_V, sizeof(CDI_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(TCON, TCON_V, sizeof(TCON_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(AGID, AGID_V, sizeof(AGID_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(PWS, PWS_V, sizeof(PWS_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(CCSET, CCSET_V, sizeof(CCSET_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(TRES, TRES_V, sizeof(TRES_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(PWR, PWR_V, sizeof(PWR_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(EN_BUF, EN_BUF_V, sizeof(EN_BUF_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(BTST_P, BTST_P_V, sizeof(BTST_P_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(BOOST_VDDP_EN, BOOST_VDDP_EN_V, sizeof(BOOST_VDDP_EN_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(BTST_N, BTST_N_V, sizeof(BTST_N_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(BUCK_BOOST_VDDN, BUCK_BOOST_VDDN_V, sizeof(BUCK_BOOST_VDDN_V));
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCs(0,GPIO_LOW);
+	writeEpd(TFT_VCOM_POWER, TFT_VCOM_POWER_V, sizeof(TFT_VCOM_POWER_V));
+	setPinCsAll(GPIO_HIGH);
+
+    ESP_LOGI(TAG, "initEPD() has been executed. \r\n");
+}
+
+unsigned char checkDriverICStatus(void)
+{
+	unsigned char csx, status = DONE;
+	unsigned char dataBuf[3];
+
+	for(csx=0 ; csx < 2 ; csx++)
+	{
+		memset(dataBuf, 0, sizeof(dataBuf));
+		setPinCs(csx,GPIO_LOW);
+		readEpd(0xF2, dataBuf, sizeof(dataBuf));
+		setPinCs(csx,GPIO_HIGH);
+		ESP_LOGI(TAG, "Driver IC [%d] = 0x%02X 0x%02X 0x%02X", csx, dataBuf[0], dataBuf[1], dataBuf[2]);
+		if((dataBuf[0] & 0x01) == 0x01)
+		{
+			ESP_LOGI(TAG, "Driver IC [%d] is ready.",csx);
+		}
+		else
+		{
+			ESP_LOGE(TAG, "Driver IC [%d] did not reply.",csx);
+			status = ERROR;
+		}
+	}
+
+	return status;
+}
+
+void epdDisplay(void)
+{
+	setPinCsAll(GPIO_LOW);
+	writeEpdCommand(PON);
+	checkBusyHigh();
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	delayms(30);
+	writeEpd(DRF, DRF_V, sizeof(DRF_V));
+	checkBusyHigh();
+	setPinCsAll(GPIO_HIGH);
+
+	setPinCsAll(GPIO_LOW);
+	writeEpd(POF, POF_V, sizeof(POF_V));
+	checkBusyHigh();
+	setPinCsAll(GPIO_HIGH);
+	ESP_LOGI(TAG, "Display Done!! \r\n");
+}
+
+void epdDisplayColor(unsigned char colorSelect){
+
+    unsigned long i;
+
+    memset(epdImageDataBuffer,colorSelect,EPD_IMAGE_DATA_BUFFER);
+
+    setPinCsAll(GPIO_LOW);
+    writeEpdCommand(DTM);
+    for(i = 0; i < 480000/EPD_IMAGE_DATA_BUFFER; i++){
+        writeEpdData(epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
+    }
+    writeEpdData(epdImageDataBuffer, 480000%EPD_IMAGE_DATA_BUFFER);
+    setPinCsAll(GPIO_HIGH);
+
+    epdDisplay();
+
+    ESP_LOGI(TAG, "Display color complete. \r\n");
+}
+
+
+// Display screen parameters (already provided)
+#define EPD_WIDTH 1200         // Total display width (pixels)
+#define EPD_HEIGHT 1600        // Display height (pixels)
+#define FIRST_PACK_SIZE 480000 // First data packet size (bytes)
+#define TOTAL_IMAGE_SIZE 960000 // Total image data size (bytes)
+
+void writeEpdImage(uint8_t csx, const unsigned char *imageData, unsigned long imageDataLength)
+{
+    // Deselect all CS pins
+    setPinCsAll(GPIO_HIGH);
+    
+    // Select target driver IC (0 = Master CS0, 1 = Slave CS1)
+    setPinCs(csx, GPIO_LOW);
+    
+    // Stream large image framebuffer using DMA bulk transmit
+    spiTransmitLargeData(DTM, (unsigned char *)imageData, imageDataLength);
+    
+    // Deselect CS pin
+    setPinCs(csx, GPIO_HIGH);
+	ESP_LOGI(TAG, "Writing data is completed.");
+}
+
+char partialWindowUpdateWithImageData(unsigned char csx, unsigned char const *imageData, unsigned long imageDataLength,
+     unsigned int xStart, unsigned int yStart, unsigned int xPixel, unsigned int yLine, unsigned char epdDisplayEnable)
+{
+	unsigned char status = DONE;
+	unsigned int HRST, HRED, VRST, VRED;
+	unsigned char partialWindowData[9];
+
+	HRST = xStart * 2;
+	HRED = (xStart + xPixel) * 2 - 1; // The range is 0 ~ 1199 (half is 600)
+	VRST = yStart / 2;
+	VRED = (yStart + yLine) / 2 - 1; // The range is 0 ~ 799 (double is 1600)
+
+	ESP_LOGI(TAG, "csx = %d ; HRST = %d ; HRED = %d ; VRST = %d ; VRED = %d",csx, HRST, HRED, VRST, VRED);
+
+	// HRST[10:0] = 8n (n = 0,1,2…)
+	if (HRST % 8 != 0){
+		status = -1;
+	}
+	// HRED[10:0] = 8m+3 (m = 4,5,6…)
+	else if ((HRED - 7) % 8 != 0) {
+		status = -2;
+	}
+	//  xStart <= 584 ; xPixel <= 600
+	else if ((xStart > 584) | (xPixel > 600)) {
+		status = -3;
+	}
+	// HRED - HRST + 1 >= 32 & HRED + 1 <= 1200
+	else if ((HRED - HRST + 1 < 32) | (HRED + 1 > 1200)){
+		status = -4;
+	}
+	else if ((yStart + yLine) % 2 != 0){
+		status = -5;
+	}
+	// yStart <= 1596 ; yLine <= 1600
+	else if ((yStart > 1596) | (yLine > 1600)) {
+		status = -6;
+	}
+	//VRST - VRED + 1 > 0 & VRED + 1 <= 800
+	else if (((int)(VRED - VRST) + 1 <= 0) | (VRED + 1 > 800)){
+		status = -7;
+	}
+	else if(csx > 1){
+		status = -8;
+	}
+	else
+	{
+		memset(partialWindowData,0,sizeof(partialWindowData));
+		partialWindowData[0] = (unsigned char)(HRST >> 8);
+		partialWindowData[1] = (unsigned char)(HRST);
+		partialWindowData[2] = (unsigned char)(HRED >> 8);
+		partialWindowData[3] = (unsigned char)(HRED);
+		partialWindowData[4] = (unsigned char)(VRST >> 8);
+		partialWindowData[5] = (unsigned char)(VRST);
+		partialWindowData[6] = (unsigned char)(VRED >> 8);
+		partialWindowData[7] = (unsigned char)(VRED);
+		partialWindowData[8] = PTLW_ENABLE;
+
+		setPinCs(csx,GPIO_LOW);
+		writeEpd(CMD66, CMD66_V, sizeof(CMD66_V));
+		setPinCs(csx,GPIO_HIGH);
+
+		setPinCs(csx,GPIO_LOW);
+		writeEpd(PTLW, partialWindowData, sizeof(partialWindowData));
+		setPinCs(csx,GPIO_HIGH);
+
+		setPinCs(csx,GPIO_LOW);
+		spiTransmitLargeData(DTM, imageData, imageDataLength);
+		setPinCs(csx,GPIO_HIGH);
+
+	}
+
+	if(status != DONE)
+	{
+		partialWindowUpdateStatus = ERROR;
+		ESP_LOGE(TAG, "partialWindowUpdateStatus = ERROR");
+	}
+
+	if(epdDisplayEnable)
+	{
+		if(partialWindowUpdateStatus == DONE) epdDisplay();
+
+		delayms(300);
+
+		//========================= Turn off PTLW =========================
+		memset(partialWindowData,0,sizeof(partialWindowData));
+		partialWindowData[8] = PTLW_DISABLE;
+		partialWindowUpdateStatus = DONE;
+
+		setPinCsAll(GPIO_LOW);
+		writeEpd(PTLW, partialWindowData, sizeof(partialWindowData));
+		setPinCsAll(GPIO_HIGH);
+		//=================================================================
+	}
+
+	return status;
+}
+
+char  partialWindowUpdateWithoutImageData(unsigned char csx, unsigned int xStart, unsigned int yStart,
+	 unsigned int xPixel, unsigned int yLine, unsigned char epdDisplayEnable)
+{
+	unsigned char status = DONE;
+	unsigned int HRST = xStart * 2;
+	unsigned int HRED = (xStart + xPixel) * 2 - 1;
+	unsigned int VRST = yStart / 2;
+	unsigned int VRED = (yStart + yLine) / 2 - 1;
+	unsigned char partialWindowData[9];
+
+	ESP_LOGI(TAG, "csx = %d ; HRST = %d ; HRED = %d ; VRST = %d ; VRED = %d \r\n",csx, HRST, HRED, VRST, VRED);
+
+	// HRST[10:0] = 8n (n = 0,1,2…)
+	if (HRST % 8 != 0){
+		status = -1;
+	}
+	// HRED[10:0] = 8m+3 (m = 4,5,6…)
+	else if ((HRED - 7) % 8 != 0) {
+		status = -2;
+	}
+	//  xStart <= 584 ; xPixel <= 600
+	else if ((xStart > 584) | (xPixel > 600)) {
+		status = -3;
+	}
+	// HRED - HRST + 1 >= 32 & HRED + 1 <= 1200
+	else if ((HRED - HRST + 1 < 32) | (HRED + 1 > 1200)){
+		status = -4;
+	}
+	else if ((yStart + yLine) % 2 != 0){
+		status = -5;
+	}
+	// yStart <= 1596 ; yLine <= 1600
+	else if ((yStart > 1596) | (yLine > 1600)) {
+		status = -6;
+	}
+	//VRST - VRED + 1 > 0 & VRED + 1 <= 800
+	else if (((int)(VRED - VRST) + 1 <= 0) | (VRED + 1 > 800)){
+		status = -7;
+	}
+	else if(csx > 1){
+		status = -8;
+	}
+	else
+	{
+		memset(partialWindowData,0,sizeof(partialWindowData));
+		partialWindowData[0] = (unsigned char)(HRST >> 8);
+		partialWindowData[1] = (unsigned char)(HRST);
+		partialWindowData[2] = (unsigned char)(HRED >> 8);
+		partialWindowData[3] = (unsigned char)(HRED);
+		partialWindowData[4] = (unsigned char)(VRST >> 8);
+		partialWindowData[5] = (unsigned char)(VRST);
+		partialWindowData[6] = (unsigned char)(VRED >> 8);
+		partialWindowData[7] = (unsigned char)(VRED);
+		partialWindowData[8] = PTLW_ENABLE;
+
+		setPinCs(csx,GPIO_LOW);
+		writeEpd(CMD66, CMD66_V, sizeof(CMD66_V));
+		setPinCs(csx,GPIO_HIGH);
+
+		setPinCs(csx,GPIO_LOW);
+		writeEpd(PTLW, partialWindowData, sizeof(partialWindowData));
+		setPinCs(csx,GPIO_HIGH);
+	}
+
+	if(status != DONE)
+	{
+		partialWindowUpdateStatus = ERROR;
+		ESP_LOGE(TAG, "partialWindowUpdateStatus = ERROR (%d)", status);
+	}
+
+	if(epdDisplayEnable)
+	{
+		if(partialWindowUpdateStatus == DONE) epdDisplay();
+
+		delayms(300);
+
+		//========================= Turn off PTLW =========================
+		memset(partialWindowData,0,sizeof(partialWindowData));
+		partialWindowData[8] = PTLW_DISABLE;
+		partialWindowUpdateStatus = DONE;
+
+		setPinCsAll(GPIO_LOW);
+		writeEpd(PTLW, partialWindowData, sizeof(partialWindowData));
+		setPinCsAll(GPIO_HIGH);
+		//=================================================================
+	}
+
+	return status;
+}
+
+// Display screen parameters (already provided)
+#define EPD_WIDTH 1200         // Total display width (pixels)
+#define EPD_HEIGHT 1600        // Display height (pixels)
+//#define FIRST_PACK_SIZE 480000 // First data packet size (bytes)
+//#define TOTAL_IMAGE_SIZE 960000 // Total image data size (bytes)
+
+void pic_display(const unsigned char *num)
+{
+    unsigned int Width, Width1, Height;
+    // Calculate width and height using the same method as the second code
+    Width = (EPD_WIDTH % 2 == 0) ? (EPD_WIDTH / 2) : (EPD_WIDTH / 2 + 1); // Width per section (pixels)
+    Width1 = (Width % 2 == 0) ? (Width / 2) : (Width / 2 + 1);            // Width per section (bytes, assuming 8 bits per pixel)
+    Height = EPD_HEIGHT;                                                   // Height (pixels)
+
+    // Transfer data to the first section (main display)
+    setPinCsAll(GPIO_HIGH);        // Deselect all
+    setPinCs(0, 0);                // Select the first section (main display)
+    writeEpdCommand(DTM);          // Send data transfer mode command
+    for (unsigned int i = 0; i < Height; i++)
+    {
+        writeEpdData(num + i * Width, Width1); // Send the first half of each row's data
+        vTaskDelay(pdMS_TO_TICKS(1));          // Delay 1ms to avoid hardware overload
+    }
+    setPinCsAll(GPIO_HIGH);        // Deselect
+
+    // Transfer data to the second section (secondary display)
+    setPinCs(1, 0);                // Select the second section (secondary display)
+    writeEpdCommand(DTM);          // Send data transfer mode command
+    for (unsigned int i = 0; i < Height; i++)
+    {
+        writeEpdData(num + i * Width + Width1, Width1); // Send the second half of each row's data
+        vTaskDelay(pdMS_TO_TICKS(1));                   // Delay 1ms
+    }
+    setPinCsAll(GPIO_HIGH);        // Deselect
+
+    // Refresh the display
+    epdDisplay();                  // Trigger display
+    vTaskDelay(pdMS_TO_TICKS(10)); // Delay 10ms to ensure refresh completion
+    ESP_LOGI(TAG, "Rendering completed"); // Print completion message
+}
+
+void pic_display_from_file(const char *filepath)
+{
+    FILE *f = fopen(filepath, "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open image file: %s", filepath);
+        return;
+    }
+
+    // Explicit dimensions for 13.3" Spectra 6 (1200 x 1600 total, 2 pixels per byte)
+    // Master IC (CS0) handles left 600 pixels (300 bytes)
+    // Slave IC (CS1) handles right 600 pixels (300 bytes)
+    const unsigned int halfWidthBytes = 300; 
+    const unsigned int fullRowBytes   = 600; 
+    const unsigned int height         = EPD_HEIGHT; // 1600 lines
+
+    const size_t singleBufSize = halfWidthBytes * height; // 480,000 bytes per controller
+
+    // 1. Allocate framebuffers in PSRAM
+    unsigned char *masterBuf = (unsigned char *)heap_caps_malloc(singleBufSize, MALLOC_CAP_SPIRAM);
+    unsigned char *slaveBuf  = (unsigned char *)heap_caps_malloc(singleBufSize, MALLOC_CAP_SPIRAM);
+
+    if (!masterBuf || !slaveBuf) {
+        ESP_LOGE(TAG, "Failed to allocate display framebuffers in PSRAM!");
+        if (masterBuf) free(masterBuf);
+        if (slaveBuf) free(slaveBuf);
+        fclose(f);
+        return;
+    }
+
+    // 2. Allocate temporary single-line buffer in internal SRAM
+    unsigned char *rowTemp = (unsigned char *)malloc(fullRowBytes);
+    if (!rowTemp) {
+        ESP_LOGE(TAG, "Failed to allocate row buffer!");
+        free(masterBuf);
+        free(slaveBuf);
+        fclose(f);
+        return;
+    }
+
+    // 3. De-interleave row data into Master and Slave PSRAM buffers
+    for (unsigned int i = 0; i < height; i++) {
+        if (fread(rowTemp, 1, fullRowBytes, f) != fullRowBytes) {
+            ESP_LOGE(TAG, "Error reading image file at line %u", i);
+            break;
+        }
+
+        // Copy left half (0..299 bytes) to Master buffer
+        memcpy(masterBuf + (i * halfWidthBytes), rowTemp, halfWidthBytes);
+
+        // Copy right half (300..599 bytes) to Slave buffer
+        memcpy(slaveBuf + (i * halfWidthBytes), rowTemp + halfWidthBytes, halfWidthBytes);
+    }
+
+    free(rowTemp);
+    fclose(f);
+
+    // 4. Pass 1: Stream to Master Driver IC (CS 0)
+    setPinCsAll(GPIO_HIGH);
+    setPinCs(0, GPIO_LOW);
+    // Removed redundant writeEpdCommand(DTM) since spiTransmitLargeData sends DTM internally
+    spiTransmitLargeData(DTM, (const unsigned char *)masterBuf, singleBufSize);
+    setPinCs(0, GPIO_HIGH);
+
+    // 5. Pass 2: Stream to Slave Driver IC (CS 1)
+    setPinCsAll(GPIO_HIGH); // Ensure all CS lines are deselected before switching controllers
+    setPinCs(1, GPIO_LOW);
+    spiTransmitLargeData(DTM, (const unsigned char *)slaveBuf, singleBufSize);
+    setPinCs(1, GPIO_HIGH);
+
+    // 6. Free PSRAM framebuffers
+    free(masterBuf);
+    free(slaveBuf);
+
+    // 7. Trigger physical display update
+    epdDisplay();
+    ESP_LOGI(TAG, "Rendering completed successfully with seam alignment fix.");
+}
+
+/**
+ * Put EPD driver into sleep mode and turn off physical display power via LOAD_SW.
+ */
+void epdSleep(void)
+{
+    // 1. Select all driver ICs (CS0 and CS1)
+    setPinCsAll(GPIO_LOW);
+
+    // 2. Send Power OFF command (POF = 0x02) with 0xA5 sleep parameter
+    writeEpd(POF, (const unsigned char[]){0xA5}, 1);
+
+    // 3. Deselect all CS pins
+    setPinCsAll(GPIO_HIGH);
+
+    // 4. Wait for internal high-voltage charge pumps to safely discharge
+    delayms(20);
+
+    // 5. Cut off physical power supply to the display via Load Switch
+    setGpioLevel(LOAD_SW, GPIO_LOW);
+
+    ESP_LOGI(TAG, "EPD entered sleep mode and LOAD_SW power disabled.");
+}

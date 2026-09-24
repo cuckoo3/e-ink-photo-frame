@@ -1,0 +1,18 @@
+{
+  "multicastAddress": "239.255.255.250",
+  "httpPort": 8964,
+  "udpPort": 8963,
+  "discoveryRequestMsg": "DISCOVER_ESP_SERVER",
+  "discoveryAckResponse": "SERVER_ACK",
+  
+  "storageFolder": "uploads",
+  "originalFolder": "original",
+  "ditheredFolder": "dithered",
+  "thumbnailFolder": "thumbnail",
+  "binFolder": "bin",
+  
+  "thumbnailWidth": 320,
+  "thumbnailHeight": 240,
+  "epdWidth": 1200,
+  "epdHeight": 1600
+}

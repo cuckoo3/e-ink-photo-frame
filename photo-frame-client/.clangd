@@ -1,0 +1,5 @@
+CompileFlags:
+  CompilationDatabase: build
+  Remove: [-m*, -f*]
+  Add: [-ffile-prefix-map==., -include, stdbool.h]
+Diagnostics: {Suppress: unknown_typename}

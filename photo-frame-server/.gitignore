@@ -1,0 +1,23 @@
+.project
+.cproject
+.settings/
+.metadata/
+
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & Runtime files
+.env
+.DS_Store
+devices.json
+
+# uploaded contents
+uploads/*
+uploads/bin/*
+uploads/original/*
+uploads/simulate/*
