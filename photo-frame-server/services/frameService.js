@@ -36,6 +36,8 @@ Server reply following JSON:
 */
     router.post('/sync', (req, res) => {
         const { mac, images } = req.body;
+		
+		console.log('[Sync Request Received]:', JSON.stringify(req.body, null, 2));
 
         if (!mac || !Array.isArray(images)) {
             console.warn('[Sync] Invalid sync request payload from client');
@@ -106,17 +108,23 @@ Server reply following JSON:
             }
         });
 
-        return res.json({
-			sleepDurationMin: sleepDurationMin,
+		const responsePayload = {
+            sleepDurationMin: sleepDurationMin,
             new: newDownloads,
             delete: filesToDelete
-        });
+        };
+
+        console.log(`[Sync Response - ${formattedMac}]:`, JSON.stringify(responsePayload, null, 2));
+
+        return res.json(responsePayload);
     });
 
     // GET /api/image/:macFolder/:fileName
     router.get('/image/:macFolder/:fileName', (req, res) => {
         const { macFolder, fileName } = req.params;
         const filePath = path.join(uploadsBaseDir, macFolder, config.binFolder, fileName);
+		
+		console.log(`[Image Request Received - ${macFolder}/${fileName}`);
 
         if (!filePath.startsWith(uploadsBaseDir)) {
             return res.status(403).send('Forbidden');
