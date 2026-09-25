@@ -1,3 +1,12 @@
+// Catch unhandled exceptions to prevent systemd suicide
+process.on('uncaughtException', (err) => {
+    console.error('[CRASH] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRASH] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const express = require('express');
 const path = require('path');
 const os = require('os');
