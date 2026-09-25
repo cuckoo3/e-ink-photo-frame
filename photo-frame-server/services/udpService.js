@@ -4,8 +4,8 @@ function initUdpListener(config, physicalIP) {
     const udpServer = dgram.createSocket({ type: 'udp4', reuseAddr: true });
 
     udpServer.on('error', (err) => {
-        console.error(`[UDP Error] Server error:\n${err.stack}`);
-        udpServer.close();
+        console.error(`[UDP Error] Socket error encountered:`, err.message);
+        // Do NOT call udpServer.close() here to prevent shutting down Node.js!
     });
 
     udpServer.on('listening', () => {
@@ -45,6 +45,7 @@ function initUdpListener(config, physicalIP) {
         }
     });
 
+    // Bind with reuseAddr
     udpServer.bind(config.udpPort, '0.0.0.0');
     return udpServer;
 }
