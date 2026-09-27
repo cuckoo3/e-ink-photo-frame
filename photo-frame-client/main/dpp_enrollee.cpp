@@ -8,6 +8,7 @@ extern "C" {
 	#include "esp_event.h"
 	#include "esp_dpp.h"
 	#include "esp_log.h"
+	#include "esp_netif_sntp.h"
 	#include "esp_sntp.h"
 	#include "GDEP133C02.h"
 	#include "comm.h"
@@ -35,8 +36,6 @@ inline static constexpr std::size_t WIFI_MAX_RETRY_NUM = 3;
 
 void DppEnrollee::_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    WifiQrcode wifiQrcode;
-	
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
             case WIFI_EVENT_STA_START: {
@@ -71,10 +70,13 @@ void DppEnrollee::_event_handler(void *arg, esp_event_base_t event_base, int32_t
                 break;
             }
             case WIFI_EVENT_DPP_URI_READY: {
-                wifi_event_dpp_uri_ready_t *uri_data = (wifi_event_dpp_uri_ready_t *)event_data;
+				wifi_event_dpp_uri_ready_t *uri_data = (wifi_event_dpp_uri_ready_t *)event_data;
                 if (uri_data != NULL) {
                     ESP_LOGI(TAG, "Scan below QR Code to configure the enrollee:");
-                    wifiQrcode.show_epd_qr_code((const char *)uri_data->uri);
+                    // Dynamically allocate or call without stack inflation
+                    WifiQrcode *wifiQrcode = new WifiQrcode();
+                    wifiQrcode->show_epd_qr_code((const char *)uri_data->uri);
+                    delete wifiQrcode;
                 }
                 break;
             }
@@ -274,23 +276,31 @@ bool DppEnrollee::is_dpp_mode(void)
 	return s_is_dpp_mode;
 }
 
-void DppEnrollee::sync_sntp_time(void) {
-	ESP_LOGI(TAG, "Initializing SNTP...");
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
+void DppEnrollee::sync_sntp_time()
+{
+    ESP_LOGI(TAG, "Initializing SNTP time sync...");
 
-    // Wait for time to be set (max 10 seconds)
-    int retry = 0;
-    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < 20) {
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+    // Default configuration uses 1 server ("pool.ntp.org")
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("time.google.com");
+
+    esp_err_t err = esp_netif_sntp_init(&config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SNTP: %s", esp_err_to_name(err));
+        return;
     }
-	
-	setenv("TZ", AppConfig::TIME_ZONE, 1);
-	tzset();
 
-    // Print current time
-    log_current_time();
+    int retry = 0;
+    const int max_retries = 15; // 15-second timeout
+
+    while (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(1000)) != ESP_OK && ++retry < max_retries) {
+        ESP_LOGI(TAG, "Waiting for SNTP time sync... (%d/%d)", retry, max_retries);
+    }
+
+    if (retry >= max_retries) {
+        ESP_LOGW(TAG, "SNTP time sync timed out. Proceeding without time update.");
+    } else {
+        ESP_LOGI(TAG, "SNTP time synced successfully.");
+    }
 }
 
 void DppEnrollee::log_current_time(void)

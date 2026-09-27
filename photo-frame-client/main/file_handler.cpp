@@ -54,59 +54,51 @@ bool FileHandler::_get_file_md5(const char *filepath, char *output_hex_33byte)
 cJSON* FileHandler::generate_files_json(const char* mount_point)
 {
     cJSON *file_array = cJSON_CreateArray();
-	if (!file_array) {
-	    ESP_LOGE(TAG, "Failed to allocate cJSON array");
-	    return NULL;
-	}
+    if (!file_array) {
+        ESP_LOGE(TAG, "Failed to allocate cJSON array");
+        return NULL;
+    }
 
-    DIR *dir = opendir(mount_point);
-    if (!dir) {
-        ESP_LOGE(TAG, "Failed to open directory: %s", mount_point);
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "%s/playlist.idx", mount_point);
+
+    FILE* f = fopen(idx_path, "rb");
+    
+    // Fallback if playlist.idx does not exist yet
+    if (!f) {
+        ESP_LOGW(TAG, "playlist.idx missing for sync payload. Falling back to directory scan.");
+        std::vector<FileHandler::FileInfo> sorted_files = _scan_local_files_sorted(mount_point);
+        for (const auto& file : sorted_files) {
+            cJSON *file_obj = cJSON_CreateObject();
+            cJSON_AddStringToObject(file_obj, "name", file.name.c_str());
+            cJSON_AddItemToArray(file_array, file_obj);
+        }
         return file_array;
     }
 
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        // ignore non .bin file
-        if (entry->d_type == DT_REG && strstr(entry->d_name, ".bin")) {
-			// Check filename bounds against configuration limits
-            size_t name_len = strlen(entry->d_name);
-            if (name_len >= AppConfig::MAX_FILENAME_LEN) {
-                ESP_LOGW(TAG, "Skipping file exceeding length limit (%zu >= %d): %s",  name_len, AppConfig::MAX_FILENAME_LEN, entry->d_name);
-                continue;
-            }
-			
-            char filepath[257];
-            int ret = snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
-			if (ret < 0 || ret >= (int)sizeof(filepath)) {
-                ESP_LOGE(TAG, "File path truncated, skipping: %s", entry->d_name);
-                continue;
-            }
+    // Direct read from playlist.idx (no MD5 calculation)
+    char filename_buf[AppConfig::MAX_FILENAME_LEN] = {0};
+    while (fread(filename_buf, 1, AppConfig::MAX_FILENAME_LEN, f) == AppConfig::MAX_FILENAME_LEN) {
+        filename_buf[AppConfig::MAX_FILENAME_LEN - 1] = '\0'; // Safety null termination
 
-            struct stat st;
-            if (stat(filepath, &st) == 0) {
-                cJSON *file_obj = cJSON_CreateObject();
-				if (!file_obj) {
-                    ESP_LOGE(TAG, "Failed to allocate cJSON object for file: %s", entry->d_name);
-                    continue;
-                }
-				cJSON_AddStringToObject(file_obj, "name", entry->d_name);
+        cJSON *file_obj = cJSON_CreateObject();
+        cJSON_AddStringToObject(file_obj, "name", filename_buf);
 
-                // calculate MD5
-                char md5[33];
-				if (_get_file_md5(filepath, md5)) {
-					cJSON_AddStringToObject(file_obj, "md5", md5);
-				} else {
-				    cJSON_AddStringToObject(file_obj, "md5", "");
-				}
-
-                cJSON_AddItemToArray(file_array, file_obj);
-            }
-        }
+        cJSON_AddItemToArray(file_array, file_obj);
     }
 
-    closedir(dir);
+    fclose(f);
     return file_array;
+}
+
+// Helper function to check suffix
+bool FileHandler::_ends_with(const char *str, const char *suffix)
+{
+    if (!str || !suffix) return false;
+    size_t str_len = strlen(str);
+    size_t suffix_len = strlen(suffix);
+    if (suffix_len > str_len) return false;
+    return strcmp(str + str_len - suffix_len, suffix) == 0;
 }
 
 const std::vector<FileHandler::FileInfo> FileHandler::_scan_local_files_sorted(const char* mount_point) {
@@ -119,32 +111,35 @@ const std::vector<FileHandler::FileInfo> FileHandler::_scan_local_files_sorted(c
     }
 
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        // Filter for regular files containing .bin extension
-        if (entry->d_type == DT_REG && strstr(entry->d_name, ".bin") != NULL) {
-			size_t name_len = strlen(entry->d_name);
-            if (name_len >= AppConfig::MAX_FILENAME_LEN) {
-                ESP_LOGW(TAG, "Skipping file exceeding length limit (%zu >= %d): %s", 
-                         name_len, AppConfig::MAX_FILENAME_LEN, entry->d_name);
-                continue;
-            }
-			
-            char filepath[257];
-            int ret =snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
-			if (ret < 0 || ret >= (int)sizeof(filepath)) {
-                ESP_LOGE(TAG, "File path truncated, skipping: %s", entry->d_name);
-                continue;
-            }
+	while ((entry = readdir(dir)) != NULL) {
+	    // 1. Check if filename ends with ".bin" (avoids matching .bin.tmp or .bin.bak)
+	    if (_ends_with(entry->d_name, ".bin")) {
+	        size_t name_len = strlen(entry->d_name);
+	        if (name_len >= AppConfig::MAX_FILENAME_LEN) {
+	            ESP_LOGW(TAG, "Skipping file exceeding length limit (%zu >= %d): %s", 
+	                     name_len, AppConfig::MAX_FILENAME_LEN, entry->d_name);
+	            continue;
+	        }
 
-            struct stat st;
-            if (stat(filepath, &st) == 0) {
-                files.push_back({
-                    .name = entry->d_name,
-                    .mtime = st.st_mtime
-                });
-            }
-        }
-    }
+	        char filepath[257];
+	        int ret = snprintf(filepath, sizeof(filepath), "%s/%s", mount_point, entry->d_name);
+	        if (ret < 0 || ret >= (int)sizeof(filepath)) {
+	            ESP_LOGE(TAG, "File path truncated, skipping: %s", entry->d_name);
+	            continue;
+	        }
+
+	        struct stat st;
+	        if (stat(filepath, &st) == 0) {
+	            // 2. Safely verify it is a regular file using stat mode
+	            if (S_ISREG(st.st_mode)) {
+	                files.push_back({
+	                    .name = entry->d_name,
+	                    .mtime = st.st_mtime
+	                });
+	            }
+	        }
+	    }
+	}
     closedir(dir);
 
     // Sort descending by mtime (newest first)
@@ -193,6 +188,46 @@ int FileHandler::rebuild_playlist_index(const char* mount_point, char* current_f
     return static_cast<int>(sorted_files.size());
 }
 
+int FileHandler::write_playlist_index(const char* mount_point, const std::vector<std::string>& filenames, char* current_filename)
+{
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "%s/playlist.idx", mount_point);
+
+    // 1. Open/create playlist.idx in "wb" mode to overwrite old index
+    FILE* f = fopen(idx_path, "wb");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open playlist index for writing: %s", idx_path);
+        return -1;
+    }
+
+    // 2. Handle empty list
+    if (filenames.empty()) {
+        if (current_filename) {
+            current_filename[0] = '\0';
+        }
+        fclose(f);
+        return 0;
+    }
+
+    // 3. Copy index 0 filename to current_filename buffer if provided
+    if (current_filename) {
+        strncpy(current_filename, filenames[0].c_str(), AppConfig::MAX_FILENAME_LEN - 1);
+        current_filename[AppConfig::MAX_FILENAME_LEN - 1] = '\0';
+    }
+
+    // 4. Write records sequentially in the exact order received from server
+    for (const auto& name : filenames) {
+        char fixed_name[AppConfig::MAX_FILENAME_LEN] = {0};
+        strncpy(fixed_name, name.c_str(), AppConfig::MAX_FILENAME_LEN - 1);
+        fwrite(fixed_name, 1, AppConfig::MAX_FILENAME_LEN, f);
+    }
+
+    fclose(f);
+    ESP_LOGI(TAG, "Successfully wrote %zu items to playlist.idx", filenames.size());
+
+    return static_cast<int>(filenames.size());
+}
+
 bool FileHandler::get_current_playlist_file(const char* mount_point, size_t current_index, char* current_filename, size_t* out_total_count)
 {
     if (!current_filename) return false;
@@ -233,4 +268,39 @@ bool FileHandler::get_current_playlist_file(const char* mount_point, size_t curr
     current_filename[AppConfig::MAX_FILENAME_LEN - 1] = '\0';
 
     return (bytes_read == AppConfig::MAX_FILENAME_LEN);
+}
+
+bool FileHandler::playlist_matches(const char* mount_point, const std::vector<std::string>& server_playlist)
+{
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "%s/playlist.idx", mount_point);
+
+    FILE* f = fopen(idx_path, "rb");
+    if (!f) return false; // File doesn't exist yet, must write
+
+    // Check size match first
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (file_size != (long)(server_playlist.size() * AppConfig::MAX_FILENAME_LEN)) {
+        fclose(f);
+        return false; // Length mismatch
+    }
+
+    // Compare each record
+    char record[AppConfig::MAX_FILENAME_LEN];
+    for (const auto& name : server_playlist) {
+        if (fread(record, 1, AppConfig::MAX_FILENAME_LEN, f) != AppConfig::MAX_FILENAME_LEN) {
+            fclose(f);
+            return false;
+        }
+        if (strncmp(record, name.c_str(), AppConfig::MAX_FILENAME_LEN - 1) != 0) {
+            fclose(f);
+            return false; // Filename or sequence order mismatch
+        }
+    }
+
+    fclose(f);
+    return true; // Playlist is identical, skip rewrite!
 }

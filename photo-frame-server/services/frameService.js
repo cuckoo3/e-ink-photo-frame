@@ -17,8 +17,8 @@ Client send following JSON:
 {
   "mac": "24:DC:C3:A1:B2:C3",
   "images": [
-    { "name": "photo01.bin", md5": xxxxxx },
-    { "name": "photo02.bin", "md5": xxxxxx }
+    { "name": "photo01.bin" },
+    { "name": "photo02.bin" }
   ]
 }
 
@@ -60,58 +60,45 @@ Server reply following JSON:
         // 2. Fetch server images directly from registry memory (devices.json)
         const serverRegistryImages = getDeviceImages(formattedMac);
 
-        // Map ESP payload by image name
-        const espFilesMap = new Map();
-        images.forEach(file => {
-            espFilesMap.set(file.name, { size: file.size, md5: file.md5 });
-        });
+		// Map ESP payload by image name
+		const espFilesMap = new Map();
+		images.forEach(file => {
+		    // Ensure entry has .bin extension for accurate lookup
+		    const fileName = file.name.endsWith('.bin') ? file.name : `${file.name}.bin`;
+		    espFilesMap.set(fileName, true);
+		});
 
-        const newDownloads = [];
-        const registryFileNames = new Set();
+		const newDownloads = [];
+		const registryFileNames = new Set();
 
-        // 3. Determine images that ESP needs to download
-        serverRegistryImages.forEach(img => {
-            const fileName = img.name.endsWith('.bin') ? img.name : `${img.name}.bin`;
-            registryFileNames.add(img.name);
-            registryFileNames.add(fileName);
+		// 1. Process server images (Standardize everything to .bin)
+		serverRegistryImages.forEach(img => {
+		    const fileName = img.name.endsWith('.bin') ? img.name : `${img.name}.bin`;
+		    registryFileNames.add(fileName); // Added only ONCE as a .bin file
 
-            const filePath = path.join(uploadsBaseDir, formattedMac, config.binFolder, fileName);
-            let serverSize = 0;
+		    // Check if the ESP32 already has this exact .bin file
+		    if (!espFilesMap.has(fileName)) {
+		        newDownloads.push({
+		            name: fileName,
+		            url: `/api/image/${formattedMac}/${fileName}`
+		        });
+		    }
+		});
 
-            if (fs.existsSync(filePath)) {
-                serverSize = fs.statSync(filePath).size;
-            }
-
-            const espFile = espFilesMap.get(img.name) || espFilesMap.get(fileName);
-
-            let needsDownload = false;
-            if (!espFile || (espFile.md5 && img.md5 && espFile.md5 !== img.md5)) {
-                needsDownload = true;
-            }
-
-            if (needsDownload) {
-                newDownloads.push({
-                    name: fileName,
-                    url: `/api/image/${formattedMac}/${fileName}`,
-                    size: serverSize,
-                    md5: img.md5
-                });
-            }
-        });
-
-        // 4. Determine images present on ESP that no longer exist in registry
-        const filesToDelete = [];
-        images.forEach(file => {
-            const baseName = path.parse(file.name).name;
-            if (!registryFileNames.has(file.name) && !registryFileNames.has(baseName)) {
-                filesToDelete.push(file.name);
-            }
-        });
+		// 2. Determine images on ESP32 that no longer exist in server registry
+		const filesToDelete = [];
+		images.forEach(file => {
+		    const fileName = file.name.endsWith('.bin') ? file.name : `${file.name}.bin`;
+		    if (!registryFileNames.has(fileName)) {
+		        filesToDelete.push(fileName);
+		    }
+		});
 
 		const responsePayload = {
             sleepDurationMin: sleepDurationMin,
             new: newDownloads,
-            delete: filesToDelete
+            delete: filesToDelete,
+			playlist: Array.from(registryFileNames)		// Send full, ordered list of binary filenames expected on the ESP32
         };
 
         console.log(`[Sync Response - ${formattedMac}]:`, JSON.stringify(responsePayload, null, 2));

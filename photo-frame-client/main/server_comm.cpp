@@ -48,6 +48,7 @@ void ServerComm::_set_http_header(const esp_http_client_handle_t client)
 // =========================================================================
 bool ServerComm::_discover_server(char* server_ip, int &server_port)
 {
+	ESP_LOGI(TAG, "Starting UDP multicast discovery on %s:%u...", AppConfig::MULTICAST_IP, AppConfig::UDP_PORT);
 	int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 	if (sock < 0) {
 		ESP_LOGE(TAG, "Unable to create UDP socket: errno %d", errno);
@@ -120,36 +121,43 @@ bool ServerComm::_discover_server(char* server_ip, int &server_port)
 			break;
 		}
 	}
-	
+	if (!server_found) {
+        ESP_LOGE(TAG, "Discovery failed after %d attempts. Server unreachable.", MAX_DISCOVERY_RETRIES);
+    }
 	close(sock);
 	return server_found;
 }
 
-typedef struct {
-    char *data;
-    size_t len;
-} http_response_buffer_t;
+esp_err_t ServerComm::_http_event_handler(esp_http_client_event_t *evt)
+{
+    char **response_data = (char **)evt->user_data;
 
-esp_err_t ServerComm::_http_event_handler(esp_http_client_event_t *evt) {
-    http_response_buffer_t *buf = (http_response_buffer_t *)evt->user_data;
+    switch (evt->event_id) {
+        case HTTP_EVENT_ON_DATA:
+            if (!esp_http_client_is_chunked_response(evt->client)) {
+                // Determine current length or start fresh
+                size_t old_len = (*response_data) ? strlen(*response_data) : 0;
+                size_t new_len = old_len + evt->data_len;
 
-    if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        char *new_ptr = (char *)realloc(buf->data, buf->len + evt->data_len + 1);
-        if (new_ptr == NULL) {
-            ESP_LOGE(TAG, "Failed to allocate memory for HTTP response");
-			
-			if (buf->data != NULL)
-                free(buf->data);
-            buf->data = NULL;
-            buf->len = 0;
-            return ESP_FAIL;
-        }
-        buf->data = new_ptr;
-        memcpy(buf->data + buf->len, evt->data, evt->data_len);
-        buf->len += evt->data_len;
-        buf->data[buf->len] = '\0';
+                char *new_buf = (char *)realloc(*response_data, new_len + 1);
+                if (new_buf) {
+                    *response_data = new_buf;
+                    memcpy(*response_data + old_len, evt->data, evt->data_len);
+                    (*response_data)[new_len] = '\0';
+                } else {
+                    ESP_LOGE(TAG, "Failed to allocate memory for HTTP response");
+                }
+            }
+            break;
+        default:
+            break;
     }
     return ESP_OK;
+}
+
+bool ServerComm::discover_server(char* server_ip, int &server_port)
+{
+    return _discover_server(server_ip, server_port);
 }
 
 bool ServerComm::connect_server(char* server_ip, int &server_port)
@@ -177,8 +185,8 @@ bool ServerComm::connect_server(char* server_ip, int &server_port)
 	{
 	  "mac": "24:DC:C3:A1:B2:C3",
 	  "images": [
-	    { "name": "photo01.bin", md5": xxxxxx },
-	    { "name": "photo02.bin", "md5": xxxxxx }
+	    { "name": "photo01.bin"},
+	    { "name": "photo02.bin"}
 	  ]
 	}
 	
@@ -194,117 +202,189 @@ bool ServerComm::connect_server(char* server_ip, int &server_port)
 	}
 	
 */
-bool ServerComm::sync_image_list(const char *server_ip, const int server_port, uint16_t &sleep_duration_min)
+// ============================================================================
+// Private Helper 1: HTTP Request Transmission
+// ============================================================================
+esp_err_t ServerComm::_send_sync_request(const char *server_ip, const int server_port, char **out_response_data)
 {
-	bool file_changed = false;
-	FileHandler fileHandler;
-	
-	char url[128];
-	snprintf(url, sizeof(url), "http://%s:%d/api/sync", server_ip, server_port);
-	
-	// 1. Build the JSON Payload
-	cJSON *root = cJSON_CreateObject();
-	cJSON_AddStringToObject(root, "mac", _get_mac_address());
-	
-	// Call scan_local_files() to populate "images" array
+    FileHandler fileHandler;
+
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d/api/sync", server_ip, server_port);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "mac", _get_mac_address());
+
     cJSON *images = fileHandler.generate_files_json(AppConfig::STORAGE_PATH);
     cJSON_AddItemToObject(root, "images", images);
 
     char *json_body = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root); // Free the cJSON structure memory
+    cJSON_Delete(root);
 
     if (!json_body) {
-        ESP_LOGE(TAG, "Failed to render JSON string");
-        return file_changed;
+        ESP_LOGE(TAG, "Failed to render sync JSON string");
+        return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Sending Sync Payload:\n%s", json_body);
 
-    // 2. Configure HTTP Client
-    http_response_buffer_t response_buf = { .data = NULL, .len = 0 };
-
     esp_http_client_config_t config = {};
-	config.url = url;
-	config.method = HTTP_METHOD_POST;
-	config.event_handler = _http_event_handler;
-	config.user_data = &response_buf;
+    config.url = url;
+    config.method = HTTP_METHOD_POST;
+    config.event_handler = _http_event_handler;
+    config.user_data = out_response_data; // Pass char** directly
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
-
-    // Set Headers
     esp_http_client_set_header(client, "Content-Type", "application/json");
-	_set_http_header(client);
-
-    // Attach POST body string
+    _set_http_header(client);
     esp_http_client_set_post_field(client, json_body, strlen(json_body));
 
-    // 4. Perform Request
     esp_err_t err = esp_http_client_perform(client);
 
-    // Free the request JSON string buffer
     free(json_body);
 
-	// parse the response from server
     if (err == ESP_OK) {
         int status_code = esp_http_client_get_status_code(client);
-        ESP_LOGI(TAG, "HTTP POST Status = %d, response length = %d", status_code, response_buf.len);
-
-        if (status_code == 200 && response_buf.data) {
-            // 5. Parse Server Response Diff JSON
-            cJSON *response_json = cJSON_Parse(response_buf.data);
-            if (response_json) {
-				// Extract sleepDurationMin from response
-	            cJSON *sleep_item = cJSON_GetObjectItem(response_json, "sleepDurationMin");
-				if (cJSON_IsNumber(sleep_item) && sleep_item->valueint > 0) {
-	                sleep_duration_min = (uint32_t)sleep_item->valueint;
-	                ESP_LOGI(TAG, "Updated sleep duration from server: %u minutes", sleep_duration_min);
-	            }
-
-                // Process 'delete' array
-                cJSON *delete_list = cJSON_GetObjectItem(response_json, "delete");
-                if (cJSON_IsArray(delete_list)) {
-                    cJSON *item = NULL;
-                    cJSON_ArrayForEach(item, delete_list) {
-						if (cJSON_IsString(item)) {
-							char path_to_del[128];
-							snprintf(path_to_del, sizeof(path_to_del), "%s/%s", AppConfig::STORAGE_PATH, item->valuestring);
-							ESP_LOGI(TAG, "Deleting old file: %s", path_to_del);
-							remove(path_to_del);
-							file_changed = true;
-						}
-                    }
-                }
-
-                // Process 'new' download list (to be downloaded sequentially)
-                cJSON *new_list = cJSON_GetObjectItem(response_json, "new");
-                if (cJSON_IsArray(new_list)) {
-                    cJSON *item = NULL;
-					
-                    cJSON_ArrayForEach(item, new_list) {
-                        cJSON *name = cJSON_GetObjectItem(item, "name");
-                        cJSON *url = cJSON_GetObjectItem(item, "url");
-                        if (cJSON_IsString(name) && cJSON_IsString(url)) {
-							ESP_LOGI(TAG, "Queued for download: %s from %s", name->valuestring, url->valuestring);
-							std::string filepath = get_image(server_ip, server_port, name->valuestring, url->valuestring);
-							if (!filepath.empty())
-								file_changed = true;
-                        }
-                    }
-                }
-
-                cJSON_Delete(response_json);
-            }
+        ESP_LOGI(TAG, "HTTP POST Status = %d", status_code);
+        if (status_code != 200) {
+            err = ESP_FAIL;
         }
     } else {
         ESP_LOGE(TAG, "HTTP POST failed: %s", esp_err_to_name(err));
     }
 
-    // Cleanup resources
-    if (response_buf.data) {
-        free(response_buf.data);
-    }
     esp_http_client_cleanup(client);
-	return file_changed;
+    return err;
+}
+
+// ============================================================================
+// Private Helper 2: JSON Response Processing
+// ============================================================================
+bool ServerComm::_process_sync_response(const char *response_data, const char *server_ip, const int server_port, uint16_t &sleep_duration_min)
+{
+    bool file_changed = false;
+    FileHandler fileHandler;
+
+    cJSON *response_json = cJSON_Parse(response_data);
+    if (!response_json) {
+        ESP_LOGE(TAG, "Failed to parse sync response JSON");
+        return file_changed;
+    }
+
+    // 1. Extract sleepDurationMin
+    cJSON *sleep_item = cJSON_GetObjectItem(response_json, "sleepDurationMin");
+    if (cJSON_IsNumber(sleep_item) && sleep_item->valueint > 0) {
+        sleep_duration_min = static_cast<uint16_t>(sleep_item->valueint);
+        ESP_LOGI(TAG, "Updated sleep duration from server: %u minutes", sleep_duration_min);
+    }
+
+    // 2. Process 'delete' array
+    cJSON *delete_list = cJSON_GetObjectItem(response_json, "delete");
+    if (cJSON_IsArray(delete_list)) {
+        cJSON *item = NULL;
+        cJSON_ArrayForEach(item, delete_list) {
+            if (cJSON_IsString(item) && item->valuestring) {
+                char path_to_del[128];
+                snprintf(path_to_del, sizeof(path_to_del), "%s/%s", AppConfig::STORAGE_PATH, item->valuestring);
+                ESP_LOGI(TAG, "Deleting old file: %s", path_to_del);
+                remove(path_to_del);
+                file_changed = true;
+            }
+        }
+    }
+
+	// 3. Process 'new' download list (Reverse order: from end of array to front)
+    cJSON *new_list = cJSON_GetObjectItem(response_json, "new");
+    if (cJSON_IsArray(new_list)) {
+        int array_size = cJSON_GetArraySize(new_list);
+
+        for (int i = array_size - 1; i >= 0; i--) {
+            cJSON *item = cJSON_GetArrayItem(new_list, i);
+            if (!item) continue;
+
+            cJSON *name = cJSON_GetObjectItem(item, "name");
+            cJSON *url = cJSON_GetObjectItem(item, "url");
+
+            if (cJSON_IsString(name) && cJSON_IsString(url)) {
+                ESP_LOGI(TAG, "Queued for download: %s from %s", name->valuestring, url->valuestring);
+                std::string filepath = get_image(server_ip, server_port, name->valuestring, url->valuestring);
+                if (!filepath.empty()) {
+                    file_changed = true;
+                }
+            }
+        }
+    }
+
+    // 4. Process server-driven 'playlist' array
+    cJSON *playlist_json = cJSON_GetObjectItem(response_json, "playlist");
+    if (cJSON_IsArray(playlist_json)) {
+        std::vector<std::string> server_playlist;
+        cJSON *item = NULL;
+        cJSON_ArrayForEach(item, playlist_json) {
+            if (cJSON_IsString(item) && item->valuestring) {
+                server_playlist.push_back(item->valuestring);
+            }
+        }
+
+        // Only rewrite if local playlist.idx differs from server playlist
+        if (!fileHandler.playlist_matches(AppConfig::STORAGE_PATH, server_playlist)) {
+            fileHandler.write_playlist_index(AppConfig::STORAGE_PATH, server_playlist);
+            ESP_LOGI(TAG, "Playlist changed. Rewrote playlist.idx with %zu items.", server_playlist.size());
+        } else {
+            ESP_LOGI(TAG, "Playlist unchanged. Skipped flash write.");
+        }
+    } 
+    else if (file_changed) {
+        // Fallback: Rebuild via local mtime scan if server playlist key is absent
+        fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH);
+        ESP_LOGI(TAG, "Fallback: Rebuilt playlist index via local mtime scan");
+    }
+
+    cJSON_Delete(response_json);
+    return file_changed;
+}
+
+// ============================================================================
+// Public Sync Orchestration Method (with 3 retries)
+// ============================================================================
+bool ServerComm::sync_image_list(const char* server_ip, const int server_port, uint16_t &sleep_duration_min)
+{
+	m_file_changed = false;
+    const int max_retries = 3;
+    char *response_data = nullptr;
+    esp_err_t err = ESP_FAIL;
+
+    for (int attempt = 1; attempt <= max_retries; ++attempt) {
+        ESP_LOGI(TAG, "Sending Sync Payload (Attempt %d/%d)...", attempt, max_retries);
+
+        err = _send_sync_request(server_ip, server_port, &response_data);
+
+        if (err == ESP_OK && response_data != nullptr) {
+            break;
+        }
+
+        ESP_LOGW(TAG, "HTTP POST failed on attempt %d/%d: %s", attempt, max_retries, esp_err_to_name(err));
+
+        if (response_data) {
+            free(response_data);
+            response_data = nullptr;
+        }
+
+        if (attempt < max_retries) {
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Delay 1 second before retrying
+        }
+    }
+
+    if (err != ESP_OK || response_data == nullptr) {
+        ESP_LOGE(TAG, "All %d HTTP sync attempts failed. Server unreachable.", max_retries);
+        return false;
+    }
+
+    // Process valid JSON response
+    m_file_changed = _process_sync_response(response_data, server_ip, server_port, sleep_duration_min);
+    free(response_data);
+
+    return true; 
 }
 
 const std::string ServerComm::get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url)
