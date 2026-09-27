@@ -329,7 +329,7 @@ module.exports = function(config, uploadsBaseDir) {
 	 * to rebuild and sync the entire registry object, sorted by birthtime (newest first).
 	 */
 	router.get('/rescan', (req, res) => {
-	    const result = rescanDevices(uploadsBaseDir, config, calculateMD5, registry, saveRegistryToDisk);
+	    const result = rescanDevices(uploadsBaseDir, config);
 
 	    if (!result.success) {
 	        return res.status(404).json({ error: result.error });

@@ -20,8 +20,7 @@ let registry = { devices: {} };
             [
                 {
                     "name": "family_photo_01",
-                    "createdAt": "2026-09-17T14:30:00Z",
-                    "md5": "e99a18c428cb38d5f260853678922e03"
+                    "createdAt": "2026-09-17T14:30:00Z"
                 }
             ]
         }
@@ -134,10 +133,10 @@ function upsertDeviceImage(mac, imageRecord) {
 }
 
 /**
- * Scans all device directories in the uploads folder, calculates file stats/MD5s,
+ * Scans all device directories in the uploads folder,
  * updates the registry memory state sorted by birthtime (newest first), and persists to disk.
  */
-function rescanDevices(uploadsBaseDir, config, calculateMD5) {
+function rescanDevices(uploadsBaseDir, config) {
     if (!fs.existsSync(uploadsBaseDir)) {
         return { success: false, error: 'Uploads directory does not exist.' };
     }
@@ -163,8 +162,7 @@ function rescanDevices(uploadsBaseDir, config, calculateMD5) {
 
                 return {
                     name: baseName,
-                    createdAt: stats.birthtime.toISOString(),
-                    md5: calculateMD5(filePath)
+                    createdAt: stats.birthtime.toISOString()
                 };
             });
 

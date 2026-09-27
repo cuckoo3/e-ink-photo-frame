@@ -86,23 +86,20 @@ wakeup_action_t check_wakeup_reason(void)
 
 void wakeup_calculate_playlist_index(wakeup_action_t wakeup_action)
 {
-	if (total_playlist_count > 0) {
+    if (total_playlist_count > 0) {
         if (wakeup_action == WAKEUP_ACTION_SHOW_PREV_IMAGE) {
-            // SW3 Pressed: Jump back 2 positions (1 for pre-increment offset, 1 for previous image)
-            current_playlist_index = (current_playlist_index + total_playlist_count - 2) % total_playlist_count;
-            ESP_LOGI(TAG, "SW3 wakeup: Decremented by 2 -> Index: %zu", current_playlist_index);
+            // SW3: Move back 1 position
+            current_playlist_index = (current_playlist_index + total_playlist_count - 1) % total_playlist_count;
+            ESP_LOGI(TAG, "SW3 wakeup: Showing previous image -> Index: %zu", current_playlist_index);
         } 
         else if (wakeup_action == WAKEUP_ACTION_SW2_DEFAULT) {
-            // SW2 Pressed: Re-display current image (undo pre-increment offset)
-            current_playlist_index = (current_playlist_index + total_playlist_count - 1) % total_playlist_count;
+            // SW2: Re-display current image (no change needed)
             ESP_LOGI(TAG, "SW2 wakeup: Re-displaying current image -> Index: %zu", current_playlist_index);
         }
-        else if (wakeup_action == WAKEUP_ACTION_SHOW_NEXT_IMAGE) {
-            // SW4 Pressed: Already pointing to next image due to pre-increment
-            ESP_LOGI(TAG, "SW4 wakeup: Displaying next image -> Index: %zu", current_playlist_index);
-        }
-        else if (wakeup_action == WAKEUP_ACTION_TIMER_REFRESH) {
-            ESP_LOGI(TAG, "Timer wakeup: Displaying scheduled next image -> Index: %zu", current_playlist_index);
+        else if (wakeup_action == WAKEUP_ACTION_SHOW_NEXT_IMAGE || wakeup_action == WAKEUP_ACTION_TIMER_REFRESH) {
+            // SW4 or Timer: Advance forward 1 position
+            current_playlist_index = (current_playlist_index + 1) % total_playlist_count;
+            ESP_LOGI(TAG, "Timer/SW4 wakeup: Displaying next image -> Index: %zu", current_playlist_index);
         }
     }
 }
@@ -199,19 +196,28 @@ extern "C" void app_main(void)
 	bool image_list_updated = false;
 	
 	// try to connect server, and sync the file list
+	ESP_LOGI(TAG, "Attempting server connection...");
     if (serverComm.connect_server(server_ip_str, server_http_port)){
-		
+		ESP_LOGI(TAG, "Server connected. Syncing image list...");
 		if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)){
 			// has file changed, rescan file index
-			ESP_LOGI(TAG, "Have file changes. Rescan file index");
+			ESP_LOGI(TAG, "Server reported file updates. Rebuilding local playlist index...");
 			total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
 			current_playlist_index = 0;
 			image_list_updated = true;
-		}
-	}
+		} else {
+            ESP_LOGI(TAG, "Server sync complete. No file changes needed.");
+        }
+	} else {
+        ESP_LOGW(TAG, "Could not connect to server. Switching to offline fallback mode.");
+        // Clear cached IP so next boot forces a fresh UDP discovery search
+        server_ip_str[0] = '\0';
+        server_http_port = 0;
+    }
+	
 	// if image list is not updated 
 	if (!image_list_updated){
-		ESP_LOGI(TAG, "No file changes. Fetching current file from playlist.idx...");
+		ESP_LOGI(TAG, "Fetching image at index %zu/%zu from local playlist.idx...", current_playlist_index, total_playlist_count);
 
         // 1. Fetch file name at current_playlist_index directly from playlist.idx (O(1) read)
         if (!fileHandler.get_current_playlist_file(AppConfig::STORAGE_PATH, current_playlist_index, current_filename, &total_playlist_count)) {
@@ -224,22 +230,18 @@ extern "C" void app_main(void)
 	}
 
 	if (current_filename[0] != '\0') {
-		// Construct full path for the display handler (e.g. "/data/img_001.bin")
+        // Construct full path for the display handler
         char full_path[128];
         snprintf(full_path, sizeof(full_path), "%s/%s", AppConfig::STORAGE_PATH, current_filename);
 
-	    ESP_LOGI(TAG, "Displaying image (%zu/%zu): %s",  current_playlist_index + 1, total_playlist_count, full_path);
+        ESP_LOGI(TAG, "Displaying image (%zu/%zu): %s", current_playlist_index + 1, total_playlist_count, full_path);
         displayHandler.display_image(full_path);
-
-        // Advance index for the next 4-hour wake cycle (wraps back to 0 at end)
-        if (total_playlist_count > 0) {
-            current_playlist_index = (current_playlist_index + 1) % total_playlist_count;
-        }
-	}
-	else {
+    }
+    else {
         ESP_LOGE(TAG, "No valid filename acquired for display.");
     }
 	
+	ESP_LOGI(TAG, "Display refresh complete. Preparing power-down sequence...");
 	displayHandler.sleep();
 	reset_button_wakeups();
 	
@@ -247,7 +249,6 @@ extern "C" void app_main(void)
 	
 	// Calculate sleep duration in microseconds: min * 60 sec * 1,000,000 us
 	uint64_t sleep_duration_us = (uint64_t)sleep_duration_min * 60ULL * 1000000ULL;
-
 	ESP_LOGI(TAG, "Entering deep sleep for %u minutes (%llu us)...", sleep_duration_min, sleep_duration_us);
 	esp_deep_sleep(sleep_duration_us);
 }

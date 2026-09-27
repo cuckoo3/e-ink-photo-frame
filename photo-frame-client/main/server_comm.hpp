@@ -36,4 +36,10 @@ class ServerComm {
 		
 		void _set_http_header(const esp_http_client_handle_t client);
 		
+		// Sends the HTTP POST sync request and retrieves raw response data
+	    esp_err_t _send_sync_request(const char *server_ip, const int server_port, char **out_response_data);
+
+	    // Parses JSON response and handles file deletions, downloads, and playlist indexing
+	    bool _process_sync_response(const char *response_data, const char *server_ip, const int server_port, uint16_t &sleep_duration_min);
+		
 };
