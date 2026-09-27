@@ -195,51 +195,77 @@ extern "C" void app_main(void)
 	char current_filename[AppConfig::MAX_FILENAME_LEN] = {0};
 	bool image_list_updated = false;
 	
-	// try to connect server, and sync the file list
+	// --- 5. SERVER CONNECTION & IMAGE SYNC ---
 	ESP_LOGI(TAG, "Attempting server connection...");
-    if (serverComm.connect_server(server_ip_str, server_http_port)){
-		ESP_LOGI(TAG, "Server connected. Syncing image list...");
-		if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)){
-			// has file changed, rescan file index
-			ESP_LOGI(TAG, "Server reported file updates. Rebuilding local playlist index...");
-			total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
-			current_playlist_index = 0;
-			image_list_updated = true;
+	bool sync_success = false;
+
+	// Check if we have a cached server IP from previous RTC memory
+	if (server_ip_str[0] != '\0' && server_http_port > 0) {
+		ESP_LOGI(TAG, "Using cached server address: %s:%d", server_ip_str, server_http_port);
+		if (serverComm.connect_server(server_ip_str, server_http_port)) {
+			ESP_LOGI(TAG, "Server connected. Syncing image list...");
+			if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)) {
+				sync_success = true;
+				if (serverComm.has_file_changes()) {
+					ESP_LOGI(TAG, "Server reported file updates. Rebuilding local playlist index...");
+					total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
+					current_playlist_index = 0;
+					image_list_updated = true;
+				} else {
+					ESP_LOGI(TAG, "Server sync complete. No file changes needed.");
+				}
+			}
+		}
+	}
+
+	// If cached connection failed or no cached IP exists -> Retry via UDP Discovery
+	if (!sync_success) {
+		ESP_LOGW(TAG, "Cached connection failed or missing. Starting UDP server discovery...");
+		// Reset cached RTC server parameters
+		server_ip_str[0] = '\0';
+		server_http_port = 0;
+
+		if (serverComm.discover_server(server_ip_str, server_http_port)) {
+			ESP_LOGI(TAG, "Discovered server at %s:%d. Attempting sync...", server_ip_str, server_http_port);
+			if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)) {
+				sync_success = true;
+				if (serverComm.has_file_changes()) {
+					ESP_LOGI(TAG, "Server reported file updates. Rebuilding local playlist index...");
+					total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
+					current_playlist_index = 0;
+					image_list_updated = true;
+				}
+			}
 		} else {
-            ESP_LOGI(TAG, "Server sync complete. No file changes needed.");
-        }
-	} else {
-        ESP_LOGW(TAG, "Could not connect to server. Switching to offline fallback mode.");
-        // Clear cached IP so next boot forces a fresh UDP discovery search
-        server_ip_str[0] = '\0';
-        server_http_port = 0;
-    }
-	
-	// if image list is not updated 
-	if (!image_list_updated){
+			ESP_LOGW(TAG, "UDP server discovery timed out. Operating in offline mode.");
+		}
+	}
+
+	// --- 6. DISPLAY RENDERING ---
+	// If image list was not updated by server (or sync failed), fetch current image from local index
+	if (!image_list_updated) {
 		ESP_LOGI(TAG, "Fetching image at index %zu/%zu from local playlist.idx...", current_playlist_index, total_playlist_count);
 
-        // 1. Fetch file name at current_playlist_index directly from playlist.idx (O(1) read)
-        if (!fileHandler.get_current_playlist_file(AppConfig::STORAGE_PATH, current_playlist_index, current_filename, &total_playlist_count)) {
-            ESP_LOGE(TAG, "Failed to read index %zu from playlist.idx. Triggering emergency rebuild...", current_playlist_index);
+		// Fetch file name at current_playlist_index directly from playlist.idx
+		if (!fileHandler.get_current_playlist_file(AppConfig::STORAGE_PATH, current_playlist_index, current_filename, &total_playlist_count)) {
+			ESP_LOGE(TAG, "Failed to read index %zu from playlist.idx. Triggering emergency rebuild...", current_playlist_index);
 
-            // Fallback: If playlist.idx is missing or corrupted, scan and rebuild on the fly
-            total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
-            current_playlist_index = 0;
-        }
+			// Fallback: If playlist.idx is missing or corrupted, scan and rebuild on the fly
+			total_playlist_count = fileHandler.rebuild_playlist_index(AppConfig::STORAGE_PATH, current_filename);
+			current_playlist_index = 0;
+		}
 	}
 
 	if (current_filename[0] != '\0') {
-        // Construct full path for the display handler
-        char full_path[128];
-        snprintf(full_path, sizeof(full_path), "%s/%s", AppConfig::STORAGE_PATH, current_filename);
+		// Construct full path for the display handler
+		char full_path[128];
+		snprintf(full_path, sizeof(full_path), "%s/%s", AppConfig::STORAGE_PATH, current_filename);
 
-        ESP_LOGI(TAG, "Displaying image (%zu/%zu): %s", current_playlist_index + 1, total_playlist_count, full_path);
-        displayHandler.display_image(full_path);
-    }
-    else {
-        ESP_LOGE(TAG, "No valid filename acquired for display.");
-    }
+		ESP_LOGI(TAG, "Displaying image (%zu/%zu): %s", current_playlist_index + 1, total_playlist_count, full_path);
+		displayHandler.display_image(full_path);
+	} else {
+		ESP_LOGE(TAG, "No valid filename acquired for display.");
+	}
 	
 	ESP_LOGI(TAG, "Display refresh complete. Preparing power-down sequence...");
 	displayHandler.sleep();

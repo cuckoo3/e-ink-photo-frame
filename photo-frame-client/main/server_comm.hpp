@@ -7,6 +7,8 @@ class ServerComm {
 	public:
 		bool connect_server(char* server_ip, int &server_port);
 		
+		bool discover_server(char* server_ip, int &server_port);
+		
 		/**
 		 * @brief Fetch display data from the server
 		 *
@@ -14,12 +16,15 @@ class ServerComm {
 		 */
 //		static void fetch_display_data(const char *server_ip, int server_port);
 
-		bool sync_image_list(const char *server_ip, const int server_port, uint16_t &sleep_duration_min);
+		bool sync_image_list(const char* server_ip, const int server_port, uint16_t &sleep_duration_min);
 		
 		const std::string get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url);
 		
+		bool has_file_changes() const { return m_file_changed; }
+		
 	private:
 		char *mac_str = NULL;
+		bool m_file_changed = false;
 		
 		/**
 		 * @brief Discover the server on the network

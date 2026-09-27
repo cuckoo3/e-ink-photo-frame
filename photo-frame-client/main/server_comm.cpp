@@ -155,6 +155,11 @@ esp_err_t ServerComm::_http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+bool ServerComm::discover_server(char* server_ip, int &server_port)
+{
+    return _discover_server(server_ip, server_port);
+}
+
 bool ServerComm::connect_server(char* server_ip, int &server_port)
 {
 	if (server_ip[0] == '\0' || server_port == 0) {
@@ -340,25 +345,46 @@ bool ServerComm::_process_sync_response(const char *response_data, const char *s
 }
 
 // ============================================================================
-// Public Orchestration Method
+// Public Sync Orchestration Method (with 3 retries)
 // ============================================================================
-bool ServerComm::sync_image_list(const char *server_ip, const int server_port, uint16_t &sleep_duration_min)
+bool ServerComm::sync_image_list(const char* server_ip, const int server_port, uint16_t &sleep_duration_min)
 {
-    char *response_data = NULL;
+	m_file_changed = false;
+    const int max_retries = 3;
+    char *response_data = nullptr;
+    esp_err_t err = ESP_FAIL;
 
-    esp_err_t err = _send_sync_request(server_ip, server_port, &response_data);
-    bool file_changed = false;
+    for (int attempt = 1; attempt <= max_retries; ++attempt) {
+        ESP_LOGI(TAG, "Sending Sync Payload (Attempt %d/%d)...", attempt, max_retries);
 
-    if (err == ESP_OK && response_data) {
-        file_changed = _process_sync_response(response_data, server_ip, server_port, sleep_duration_min);
+        err = _send_sync_request(server_ip, server_port, &response_data);
+
+        if (err == ESP_OK && response_data != nullptr) {
+            break;
+        }
+
+        ESP_LOGW(TAG, "HTTP POST failed on attempt %d/%d: %s", attempt, max_retries, esp_err_to_name(err));
+
+        if (response_data) {
+            free(response_data);
+            response_data = nullptr;
+        }
+
+        if (attempt < max_retries) {
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Delay 1 second before retrying
+        }
     }
 
-    // Free the dynamically allocated string buffer directly
-    if (response_data) {
-        free(response_data);
+    if (err != ESP_OK || response_data == nullptr) {
+        ESP_LOGE(TAG, "All %d HTTP sync attempts failed. Server unreachable.", max_retries);
+        return false;
     }
 
-    return file_changed;
+    // Process valid JSON response
+    m_file_changed = _process_sync_response(response_data, server_ip, server_port, sleep_duration_min);
+    free(response_data);
+
+    return true; 
 }
 
 const std::string ServerComm::get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url)
