@@ -65,5 +65,5 @@ app.use('/api', frameService(config, STORAGE_DIR));
 app.use('/admin', adminService(config, STORAGE_DIR));
 
 app.listen(config.httpPort, () => {
-    console.log(`[HTTP] Web Admin interface running at http://localhost:${config.httpPort}`);
+    console.log(`[${new Date().toLocaleString()}] [HTTP] Web Admin interface running at http://localhost:${config.httpPort}`);
 });

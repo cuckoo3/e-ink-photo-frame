@@ -35,9 +35,9 @@ function initRegistry() {
             if (!registry.devices) {
                 registry.devices = {};
             }
-            console.log(`[Registry] Successfully loaded registry from ${REGISTRY_PATH}`);
+            console.log(`[${new Date().toLocaleString()}] [Registry] Successfully loaded registry from ${REGISTRY_PATH}`);
         } catch (err) {
-            console.error('[Registry Error] Failed to parse devices.json, initializing empty state:', err);
+            console.error(`[${new Date().toLocaleString()}] [Registry Error] Failed to parse devices.json, initializing empty state:`, err);
             registry = { devices: {} };
         }
     } else {
@@ -53,9 +53,9 @@ function initRegistry() {
 function saveRegistryToDisk() {
     try {
         fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2), 'utf8');
-        console.log('[Registry] devices.json updated successfully.');
+        console.log(`[${new Date().toLocaleString()}] [Registry] devices.json updated successfully.`);
     } catch (err) {
-        console.error('[Registry Error] Failed to write devices.json:', err);
+        console.error(`[${new Date().toLocaleString()}] [Registry Error] Failed to write devices.json:`, err);
     }
 }
 
