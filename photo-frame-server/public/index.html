@@ -82,8 +82,8 @@
                 <div class="flex items-center space-x-2">
                     <label for="dither-options" class="font-semibold text-gray-700">Algorithm:</label>
                     <select id="dither-options" class="border border-gray-300 rounded px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="floyd-steinberg">Floyd-Steinberg</option>
-                        <option value="jjn" selected="selected">Jarvis-Judice-Ninke (JJN)</option>
+                        <option value="floyd-steinberg" selected="selected">Floyd-Steinberg</option>
+                        <option value="jjn">Jarvis-Judice-Ninke (JJN)</option>
                         <option value="stucki">Stucki</option>
                     </select>
                 </div>
@@ -375,18 +375,21 @@
                         method: 'POST',
                         body: formData
                     });
+                    
+                    const resData = await response.json().catch(() => ({}));
 
                     if (response.ok) {
                         renderStatus.textContent = 'Uploaded successfully!';
                         renderStatus.className = 'font-bold text-emerald-600 inline';
                         loadDeviceImages(selectedMac);
                     } else {
-                        renderStatus.textContent = 'Upload failed.';
+                    		// Display the specific error message returned by the server (e.g., max limit reached)
+                        renderStatus.textContent = resData.error || 'Upload failed.';
                         renderStatus.className = 'font-bold text-red-600 inline';
                     }
                 } catch (error) {
                     console.error('Upload Error:', error);
-                    renderStatus.textContent = 'Error uploading.';
+                    renderStatus.textContent = 'Network or server error.';
                     renderStatus.className = 'font-bold text-red-600 inline';
                 }
             });

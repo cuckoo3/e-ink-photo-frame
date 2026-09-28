@@ -204,7 +204,7 @@ extern "C" void app_main(void)
 		ESP_LOGI(TAG, "Using cached server address: %s:%d", server_ip_str, server_http_port);
 		if (serverComm.connect_server(server_ip_str, server_http_port)) {
 			ESP_LOGI(TAG, "Server connected. Syncing image list...");
-			if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)) {
+			if (serverComm.sync_image_list(server_ip_str, server_http_port, total_playlist_count, sleep_duration_min)) {
 				sync_success = true;
 				if (serverComm.has_file_changes()) {
 					ESP_LOGI(TAG, "Server reported file updates. Rebuilding local playlist index...");
@@ -227,7 +227,7 @@ extern "C" void app_main(void)
 
 		if (serverComm.discover_server(server_ip_str, server_http_port)) {
 			ESP_LOGI(TAG, "Discovered server at %s:%d. Attempting sync...", server_ip_str, server_http_port);
-			if (serverComm.sync_image_list(server_ip_str, server_http_port, sleep_duration_min)) {
+			if (serverComm.sync_image_list(server_ip_str, server_http_port, total_playlist_count, sleep_duration_min)) {
 				sync_success = true;
 				if (serverComm.has_file_changes()) {
 					ESP_LOGI(TAG, "Server reported file updates. Rebuilding local playlist index...");

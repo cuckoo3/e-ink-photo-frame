@@ -89,7 +89,19 @@ module.exports = function(config, uploadsBaseDir) {
 
 	        const originalFile = req.files.original[0];
 	        const ditheredFile = req.files.dithered[0];
-	        const baseName = path.parse(originalFile.originalname).name;
+			
+			// --- 1. Sanitize & Truncate BaseName ---
+	        let rawBaseName = path.parse(originalFile.originalname).name.replace(/[^a-zA-Z0-9._-]/g, '_');
+	        
+	        // Reserve characters for the longest extension (e.g., ".bin" is 4 chars)
+	        const maxExtLen = 4;
+	        const maxBaseNameLen = (config.maxFilenameLen || 32) - maxExtLen;
+
+	        let baseName = rawBaseName;
+	        if (baseName.length > maxBaseNameLen) {
+	            baseName = baseName.substring(0, maxBaseNameLen);
+	            console.warn(`[Upload] BaseName truncated from '${rawBaseName}' to '${baseName}' for MAC: ${mac}`);
+	        }
 
 	        // Target directory paths using direct req.body.mac
 	        const originalDirPath = path.join(uploadsBaseDir, mac, config.originalFolder);
@@ -97,13 +109,26 @@ module.exports = function(config, uploadsBaseDir) {
 	        const binDirPath = path.join(uploadsBaseDir, mac, config.binFolder);
 	        const thumbnailDirPath = path.join(uploadsBaseDir, mac, config.thumbnailFolder);
 
-	        // Ensure all target directories exist
+			// Ensure all target directories exist
 	        await Promise.all([
 	            fs.promises.mkdir(originalDirPath, { recursive: true }),
 	            fs.promises.mkdir(ditheredDirPath, { recursive: true }),
 	            fs.promises.mkdir(binDirPath, { recursive: true }),
 	            fs.promises.mkdir(thumbnailDirPath, { recursive: true })
 	        ]);
+
+			// --- 2. Check File Count Limit via Registry (No FIFO: Reject upload if limit reached) ---
+	        const currentImages = getDeviceImages(mac); //
+	        const maxCount = config.maxFileCount || 10;
+	        const isOverwritingExisting = currentImages.some(img => img.name === baseName);
+
+	        // Reject upload if capacity is reached and this is not overwriting an existing file
+	        if (currentImages.length >= maxCount && !isOverwritingExisting) {
+				console.error(`Fail to upload. Max file limit reached (${maxCount}).`);
+	            return res.status(400).json({ 
+	                error: `Max file limit reached (${maxCount}).` 
+	            });
+	        }
 
 	        // File destination paths
 	        const originalFilePath = path.join(originalDirPath, `${baseName}.jpg`);

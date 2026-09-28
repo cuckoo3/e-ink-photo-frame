@@ -177,6 +177,11 @@ bool ServerComm::connect_server(char* server_ip, int &server_port)
 	}
 }
 
+bool ServerComm::has_file_changes() const
+{
+	return m_file_changed;
+}
+
 /*
 	return true if have file changes
 	false for no changes.
@@ -260,7 +265,7 @@ esp_err_t ServerComm::_send_sync_request(const char *server_ip, const int server
 // ============================================================================
 // Private Helper 2: JSON Response Processing
 // ============================================================================
-bool ServerComm::_process_sync_response(const char *response_data, const char *server_ip, const int server_port, uint16_t &sleep_duration_min)
+bool ServerComm::_process_sync_response(const char *response_data, const char *server_ip, const int server_port, size_t current_file_count, uint16_t &sleep_duration_min)
 {
     bool file_changed = false;
     FileHandler fileHandler;
@@ -287,8 +292,12 @@ bool ServerComm::_process_sync_response(const char *response_data, const char *s
                 char path_to_del[128];
                 snprintf(path_to_del, sizeof(path_to_del), "%s/%s", AppConfig::STORAGE_PATH, item->valuestring);
                 ESP_LOGI(TAG, "Deleting old file: %s", path_to_del);
-                remove(path_to_del);
-                file_changed = true;
+				if (remove(path_to_del) == 0) {
+                    file_changed = true;
+                    if (current_file_count > 0) {
+                        current_file_count--;
+                    }
+                }
             }
         }
     }
@@ -305,11 +314,26 @@ bool ServerComm::_process_sync_response(const char *response_data, const char *s
             cJSON *name = cJSON_GetObjectItem(item, "name");
             cJSON *url = cJSON_GetObjectItem(item, "url");
 
-            if (cJSON_IsString(name) && cJSON_IsString(url)) {
+            if (cJSON_IsString(name) && cJSON_IsString(url) && name->valuestring && url->valuestring) {
+				// --- check the filename length ---
+                size_t name_len = strlen(name->valuestring);
+                if (name_len == 0 || name_len >= AppConfig::MAX_FILENAME_LEN) {
+                    ESP_LOGE(TAG, "Skipping download: filename '%s' length (%zu) exceeds MAX_FILENAME_LEN (%zu)",
+                             name->valuestring, name_len, (size_t)AppConfig::MAX_FILENAME_LEN);
+                    continue; // filename over the max length, skip to next file
+                }
+				
+				// Check MAX_FILE_COUNT limit against local working count
+                if (current_file_count >= AppConfig::MAX_FILE_COUNT) {
+                    ESP_LOGW(TAG, "Skipping download for '%s': Max file count limit (%u) reached", name->valuestring, AppConfig::MAX_FILE_COUNT);
+                    continue;
+                }
+				
                 ESP_LOGI(TAG, "Queued for download: %s from %s", name->valuestring, url->valuestring);
-                std::string filepath = get_image(server_ip, server_port, name->valuestring, url->valuestring);
+                std::string filepath = _get_image(server_ip, server_port, name->valuestring, url->valuestring);
                 if (!filepath.empty()) {
                     file_changed = true;
+					current_file_count++;
                 }
             }
         }
@@ -347,7 +371,7 @@ bool ServerComm::_process_sync_response(const char *response_data, const char *s
 // ============================================================================
 // Public Sync Orchestration Method (with 3 retries)
 // ============================================================================
-bool ServerComm::sync_image_list(const char* server_ip, const int server_port, uint16_t &sleep_duration_min)
+bool ServerComm::sync_image_list(const char* server_ip, const int server_port, size_t current_file_count, uint16_t &sleep_duration_min)
 {
 	m_file_changed = false;
     const int max_retries = 3;
@@ -381,13 +405,13 @@ bool ServerComm::sync_image_list(const char* server_ip, const int server_port, u
     }
 
     // Process valid JSON response
-    m_file_changed = _process_sync_response(response_data, server_ip, server_port, sleep_duration_min);
+    m_file_changed = _process_sync_response(response_data, server_ip, server_port, current_file_count, sleep_duration_min);
     free(response_data);
 
     return true; 
 }
 
-const std::string ServerComm::get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url)
+const std::string ServerComm::_get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url)
 {
     char url[128];
     snprintf(url, sizeof(url), "http://%s:%d%s", server_ip, server_port, file_url);
