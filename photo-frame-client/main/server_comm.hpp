@@ -16,11 +16,9 @@ class ServerComm {
 		 */
 //		static void fetch_display_data(const char *server_ip, int server_port);
 
-		bool sync_image_list(const char* server_ip, const int server_port, uint16_t &sleep_duration_min);
+		bool sync_image_list(const char* server_ip, const int server_port, size_t current_file_count, uint16_t &sleep_duration_min);
 		
-		const std::string get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url);
-		
-		bool has_file_changes() const { return m_file_changed; }
+		bool has_file_changes() const;
 		
 	private:
 		char *mac_str = NULL;
@@ -43,8 +41,10 @@ class ServerComm {
 		
 		// Sends the HTTP POST sync request and retrieves raw response data
 	    esp_err_t _send_sync_request(const char *server_ip, const int server_port, char **out_response_data);
-
+		
 	    // Parses JSON response and handles file deletions, downloads, and playlist indexing
-	    bool _process_sync_response(const char *response_data, const char *server_ip, const int server_port, uint16_t &sleep_duration_min);
+	    bool _process_sync_response(const char *response_data, const char *server_ip, const int server_port, size_t current_file_count, uint16_t &sleep_duration_min);
+
+		const std::string _get_image(const char *server_ip, const int server_port, const char *filename, const char *file_url);
 		
 };

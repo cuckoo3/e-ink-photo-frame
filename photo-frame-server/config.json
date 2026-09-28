@@ -14,5 +14,8 @@
   "thumbnailWidth": 320,
   "thumbnailHeight": 240,
   "epdWidth": 1200,
-  "epdHeight": 1600
+  "epdHeight": 1600,
+  
+  "maxFileCount": 16,
+  "maxFilenameLen": 31
 }

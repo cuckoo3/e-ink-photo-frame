@@ -53,7 +53,7 @@ esp_err_t initialSpi(void)
 
 void initialGpio(void)
 {
-	esp_err_t status;
+	esp_err_t status __attribute__((unused));
 
     gpio_config_t ioConfig = {};
 
@@ -246,7 +246,6 @@ esp_err_t spiTransmitLargeData(unsigned char commandBuf, const unsigned char *da
 	return status;
 
 }
-
 esp_err_t spiTransmit(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength)
 {
 	esp_err_t status=0;
