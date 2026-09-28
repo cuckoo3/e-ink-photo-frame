@@ -36,11 +36,10 @@ Server reply following JSON:
 */
     router.post('/sync', (req, res) => {
         const { mac, images } = req.body;
-		
-		console.log('[Sync Request Received]:', JSON.stringify(req.body, null, 2));
+		console.log(`[${new Date().toLocaleString()}] [Sync Request Received]:`, JSON.stringify(req.body));
 
         if (!mac || !Array.isArray(images)) {
-            console.warn('[Sync] Invalid sync request payload from client');
+            console.warn(`[${new Date().toLocaleString()}] [Sync] Invalid sync request payload from client`);
             return res.status(400).json({ error: 'Missing MAC address or images array' });
         }
 
@@ -50,7 +49,7 @@ Server reply following JSON:
         // 1. Auto-register new device into devices.json if missing without creating folders
         const { isNew } = ensureDevice(formattedMac);
         if (isNew) {
-            console.log(`[Sync] Registered new device MAC in registry: ${formattedMac}`);
+            console.log(`[${new Date().toLocaleString()}] [Sync] Registered new device MAC in registry: ${formattedMac}`);
         }
 		
 		// Fetch device entry and configured sleep duration in minutes (defaults to 240 min)
@@ -101,7 +100,7 @@ Server reply following JSON:
 			playlist: Array.from(registryFileNames)		// Send full, ordered list of binary filenames expected on the ESP32
         };
 
-        console.log(`[Sync Response - ${formattedMac}]:`, JSON.stringify(responsePayload, null, 2));
+        console.log(`[${new Date().toLocaleString()}] [Sync Response - ${formattedMac}]:`, JSON.stringify(responsePayload));
 
         return res.json(responsePayload);
     });
@@ -111,7 +110,7 @@ Server reply following JSON:
         const { macFolder, fileName } = req.params;
         const filePath = path.join(uploadsBaseDir, macFolder, config.binFolder, fileName);
 		
-		console.log(`[Image Request Received - ${macFolder}/${fileName}`);
+		console.log(`[${new Date().toLocaleString()}] [Image Request Received - ${macFolder}/${fileName}`);
 
         if (!filePath.startsWith(uploadsBaseDir)) {
             return res.status(403).send('Forbidden');

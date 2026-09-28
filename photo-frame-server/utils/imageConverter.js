@@ -49,9 +49,7 @@ async function convertPngToBin(pngBuffer, outputBinPath, config = {}) {
 
     // 2. Validate strict target dimensions
     if (imageWidth !== config.epdWidth || imageHeight !== config.epdHeight) {
-        throw new Error(
-            `Invalid image dimensions (${imageWidth}x${imageHeight}). Must be ${epdWidth}x${epdHeight}.`
-        );
+        throw new Error(`Invalid image dimensions (${imageWidth}x${imageHeight}). Must be ${epdWidth}x${epdHeight}.`);
     }
 
     // 3. Resize precisely and extract raw RGB buffer

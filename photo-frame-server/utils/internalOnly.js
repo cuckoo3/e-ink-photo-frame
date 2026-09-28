@@ -26,6 +26,6 @@ module.exports = function internalOnly(req, res, next) {
         return next();
     }
 
-    console.warn(`[Security] Blocked external access attempt to internal endpoint from IP: ${clientIp}`);
+    console.warn(`[${new Date().toLocaleString()}] [Security] Blocked external access attempt to internal endpoint from IP: ${clientIp}`);
     return res.status(403).json({ error: 'Forbidden: Access allowed from local network only.' });
 };

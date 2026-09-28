@@ -15,7 +15,7 @@ function calculateMD5(filePath) {
         hashSum.update(fileBuffer);
         return hashSum.digest('hex');
     } catch (err) {
-        console.error(`[MD5 Error] Failed to compute hash for ${filePath}:`, err);
+        console.error(`[${new Date().toLocaleString()}] [MD5 Error] Failed to compute hash for ${filePath}:`, err);
         return null;
     }
 }
@@ -124,7 +124,7 @@ module.exports = function(config, uploadsBaseDir) {
 
 	        // Reject upload if capacity is reached and this is not overwriting an existing file
 	        if (currentImages.length >= maxCount && !isOverwritingExisting) {
-				console.error(`Fail to upload. Max file limit reached (${maxCount}).`);
+				console.error(`[${new Date().toLocaleString()}] Fail to upload. Max file limit reached (${maxCount}).`);
 	            return res.status(400).json({ 
 	                error: `Max file limit reached (${maxCount}).` 
 	            });
@@ -143,14 +143,14 @@ module.exports = function(config, uploadsBaseDir) {
 	        ]);
 			
 			// Log original file details upon successfully writing to disk
-	        console.log(`[Upload] Saved Original File:`, {
-	            mac: mac,
-	            filename: originalFile.originalname,
-	            baseName: baseName,
-	            mimetype: originalFile.mimetype,
-	            size: `${(originalFile.size / 1024).toFixed(2)} KB`,
-	            destination: originalFilePath
-	        });
+			console.log(`[${new Date().toLocaleString()}] [Upload] Saved Original File:`, JSON.stringify({
+			    mac: mac,
+			    filename: originalFile.originalname,
+			    baseName: baseName,
+			    mimetype: originalFile.mimetype,
+			    size: `${(originalFile.size / 1024).toFixed(2)} KB`,
+			    destination: originalFilePath
+			}));
 
 	        // 2. Generate 320x240 JPEG thumbnail from original image buffer
 	        await sharp(originalFile.buffer)
@@ -180,7 +180,7 @@ module.exports = function(config, uploadsBaseDir) {
 	            md5: binMd5
 	        });
 	    } catch (error) {
-	        console.error('Upload processing error:', error);
+	        console.error(`[${new Date().toLocaleString()}] [Upload Processing Error]:`, error);
 	        return res.status(500).json({ error: 'Failed to process and save uploaded files.' });
 	    }
 	});
@@ -223,7 +223,7 @@ module.exports = function(config, uploadsBaseDir) {
         registry.devices[deviceId].sleepDurationMin = parseInt(sleepDurationMin, 10);
         saveRegistryToDisk();
 
-        console.log(`[Config Update] Device ${deviceId} sleepDurationMin set to ${sleepDurationMin} min`);
+        console.log(`[${new Date().toLocaleString()}] [Config Update] Device ${deviceId} sleepDurationMin set to ${sleepDurationMin} min`);
 
         return res.json({
             success: true,
@@ -340,7 +340,7 @@ module.exports = function(config, uploadsBaseDir) {
 	            message: `Image ${name} successfully deleted from device ${mac}`
 	        });
 	    } catch (err) {
-	        console.error(`Failed to delete image ${name} for MAC ${mac}:`, err);
+	        console.error(`[${new Date().toLocaleString()}] Failed to delete image ${name} for MAC ${mac}:`, err);
 	        return res.status(500).json({
 	            success: false,
 	            error: 'Server error occurred while deleting image'
@@ -360,7 +360,7 @@ module.exports = function(config, uploadsBaseDir) {
 	        return res.status(404).json({ error: result.error });
 	    }
 
-	    console.log(`[Full Rescan] Completed. Scanned ${result.scannedDevicesCount} device(s) and sorted by newest first.`);
+	    console.log(`[${new Date().toLocaleString()}] [Full Rescan] Completed. Scanned ${result.scannedDevicesCount} device(s) and sorted by newest first.`);
 
 	    return res.json({
 	        message: 'Full registry rescan completed successfully.',
