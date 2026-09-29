@@ -244,4 +244,6 @@ JSON
 ---
 ## License
 
-This project is provided for personal and educational use only under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)** license. Commercial use is strictly prohibited without explicit permission.
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0).
+
+Commercial use is not permitted without a separate license from the copyright holder.
