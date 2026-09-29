@@ -1,17 +1,247 @@
-# e-ink-photo-frame
-A low-power ESP32-S3 e-paper digital frame using a 13.3" E Ink Spectra 6 display, paired with a web REST API for server-side image dithering and automatic updates.
+# 13.3" E-Paper Digital Photo Frame (ESP32-133C02 + Node.js)
+An ultra-low-power, Wi-Fi-connected digital photo frame driven by **ESP32-133C02** and a **13.3-inch Good Display E-Ink Spectra 6 (E6 / GDEP133C02)** color e-Paper display. The firmware features automated server syncing via UDP multicast discovery, HTTP image downloading, LittleFS file management, Wi-Fi DPP (Easy Connect) provisioning with on-screen QR codes, and aggressive deep sleep power management.
 
-for the function of the ESP32 controller
-1. able to connect home's wifi
-   a. Display a QR code for Wi-Fi Easy Connect
-3. after connected to wifi, connect to the website and call the REST api in the webserver to see if any new images updated.
-4. if have new images updated (should be binary and dithered, and no need to do extra image process for the ESP32 to output to the e-ink), download them and store them
-5. deep sleep (cut the wifi) and wait for may be 6 hours to wake up again and do the procedures again
-6. can wake up and do the procedures again by pressing the hard button (IO12 )
+The system uses a dedicated **Node.js backend server** that processes, crops, and dithers uploaded JPEG images into 4-bit packed binary color buffers.
+The ESP32-133C02 client wakes up on a schedule, fetches image updates over Wi-Fi, stores them locally in **LittleFS** (holding up to 16 images), updates the screen, and enters deep sleep for maximum battery longevity.
 
-for the function of the webserver and REST API
-1. webpage to update image, preview the output (using RGB color that similar to the E6 e-ink's color) of the dithered image with difficult algorithms
-2. store the original image and the dithered binary to the server
-3. API for the list of images
-4. API for ESP32 to download dithered image's binary
-5. 
+---
+
+## Features & System Overview
+
+### ESP32-133C02 Client Firmware
+1. **Wi-Fi Easy Connect (DPP)**: Displays a provisioning QR code directly on the 13.3" E-Paper display for instant, passwordless setup via smartphone or router.
+2. **Scheduled Sync**: Connects to the web server's REST API at set intervals (e.g., every 6 hours) to check for newly dithered images.
+3. **Zero-Processing Display**: Downloads pre-dithered raw binary files directly into **LittleFS** storage without requiring CPU-intensive image processing on the ESP32.
+4. **Deep Sleep Power Saving**: Disconnects Wi-Fi and enters deep sleep mode to maximize battery lifetime.
+5. **Hardware Button Interrupt**: Supports manual wake-up via a physical push button on **GPIO 12** to trigger an immediate check-in and image refresh.
+
+### Web Server & REST API
+1. **Web Management Dashboard**: Upload original JPEGs and preview simulated E-Ink Spectra 6 RGB output using customizable dithering algorithms.
+2. **Dual Storage Pipeline**: Saves both the high-resolution original image and the optimized 4-bit dithered binary file (`.bin`).
+3. **Image Management API**: REST endpoints to query image lists, ordering, and metadata.
+4. **Binary Download API**: Dedicated endpoint for the ESP32 client to pull raw dithered binary image streams.
+
+---
+
+## Hardware Requirements
+| Feature | Specification |
+| :--- | :--- |
+| **Microcontroller** |  **ESP32-133C02** (ESP32-S3 with 16MB Flash) |
+| **Display** | Good Display 13.3" Spectra 6 (`GDEP133C02`) |
+| **Resolution** | 1200 × 1600 (Dual Driver ICs: Left 600px Master / Right 600px Slave) |
+| **Storage** | On-chip Flash formatted with LittleFS (`storage` partition) |
+| **Connectivity** | 2.4 GHz Wi-Fi (DPP / Easy Connect Enrollee support) |
+| **Power Management** | Ext1 Deep Sleep Wakeup + Hardware Power Rail Switch (`LOAD_SW`) |
+| **Power** | Li-ion Battery (18650) |
+| **Frame** | Photo frame (Ikea KNOPPÄNG) |
+
+---
+
+## Hardware Pinout
+
+### E-Paper Display (SPI)
+
+| Signal Name | ESP32-S3 Pin | Description |
+| :--- | :--- | :--- |
+| **CLK (EPD_SCK)** | **GPIO 9** | SPI Clock Line |
+| **MOSI (EPD_MOSI)** | **GPIO 41** | SPI Data Line (Master Out Slave In) |
+| **MISO (EPD_MISO)** | **GPIO 41** | SPI Data Line (Master In Slave Out) |
+| **DC (EPD_DC)** | **GPIO 2** | Data/Command Control Selection |
+| **CS0 (EPD_CS_M)** | **GPIO 18** | Master Driver IC Chip Select |
+| **CS1 (EPD_CS_S)** | **GPIO 17** | Slave Driver IC Chip Select |
+| **EPD_RST** | **GPIO 6** | E-Paper Hardware Reset Signal |
+| **EPD_BUSY** | **GPIO 7** | E-Paper Busy Status Indicator |
+| **LOAD_SW** | **GPIO 45** | Power Switch MOSFET Control (High = Power On) |
+
+
+### Navigation & Wakeup Buttons (Ext1 Interrupts)
+
+| Button / Signal | GPIO Pin | Function |
+| :--- | :--- | :--- |
+| **SW2_WAKEUP** | **GPIO 12** | System Wakeup & Redraw current frame |
+| **SW3_PREV_IMG** | **GPIO 13** | System Wakeup & Navigate to previous image |
+| **SW4_NEXT_IMG** | **GPIO 14** | System Wakeup & Navigate to next image |
+
+---
+
+## Hardware Controls & Wi-Fi Provisioning
+
+## Memory & Flash Partition Layout
+
+The project uses a custom `partitions.csv` specifically optimized for 16MB Flash devices to maximize image storage:
+
+| Partition | Size | Offset | Description |
+| :--- | :--- | :--- | :--- |
+| **`factory`** | `1200K` | `0x10000` | Application firmware (~238 KB free buffer) |
+| **`storage`** | `15120K` | `0x13C000` | LittleFS partition holding up to 16 binary photos (~938 KB each) + `playlist.idx` |
+
+---
+
+## System Architecture & Lifecycle
+```
+      [ Wakeup: Timer / GPIO 12/13/14 ]
+                       │
+                       ▼
+   [ Calculate Playlist Index & Read Buttons ]
+                       │
+                       ▼
+       [ Check Wi-Fi Credentials in NVS ]
+             │                   │
+          ( Found )          ( Missing )
+             │                   │
+             │                   ▼
+             │         [ Start Wi-Fi DPP Mode ]
+             │                   │
+             │                   ▼
+             │           ( Render QR Code )
+             │                   │
+             │                   ▼
+             │         [ Wait / 5m Timeout ]
+             │                   │
+             └─────────┬─────────┘
+                       │
+                       ▼
+          [ Connect Wi-Fi & SNTP Sync ]
+                       │
+                       ▼
+          [ Check Stored Server IP/Port ]
+                 │                   │
+              ( Found )          ( Missing )
+                 │                   │
+                 ▼                   │
+        [ Try Direct Connect ]       │
+              │           │          │
+          (Success)    (Failed)      │
+              │           └────┬─────┘
+              │                │
+              │                ▼
+              │    [ UDP Multicast Discovery ]
+              │                │
+              └────────┬───────┘
+                       │
+                       ▼
+                       │
+                       ▼
+          [ HTTP Sync (POST /api/sync) ]
+                       │
+                       ├─► ( Delete Old Files )
+                       ├─► ( Download New .bin )
+                       │
+                       ▼
+       [ Decode & Render Image in .bin ]
+                       │
+                       ▼
+           [ Refresh E-Paper Display ]
+                       │
+                       ▼
+ [ Cut Display Power Rail (LOAD_SW) & Enter Deep Sleep ]
+```
+
+---
+
+## Network Protocol & API Specifications
+
+### 1. UDP Multicast Server Discovery
+- **Multicast Target**: Configured in `AppConfig::MULTICAST_IP` & `AppConfig::UDP_PORT`
+- **Outbound Message**: `DISCOVER_ESP_SERVER`
+- **Expected Response**: `SERVER_ACK:<HTTP_PORT>`
+
+### 2. HTTP Synchronization (`POST /api/sync`)
+The device identifies itself via HTTP Headers and sends its current image catalog.
+
+#### Request Headers
+```
+http
+POST /api/sync HTTP/1.1
+Content-Type: application/json
+x-device-mac: XX:XX:XX:XX:XX:XX
+```
+
+#### Request Payload
+```
+JSON
+
+{
+  "mac": "XX:XX:XX:XX:XX:XX",
+  "images": [
+    { "name": "photo01.bin" }
+  ]
+}
+```
+
+#### Response Payload
+```
+JSON
+
+{
+  "sleepDurationMin": 240,
+  "delete": [
+    "photo01.bin"
+  ],
+  "new": [
+    {
+      "name": "photo02.bin",
+      "url": "/api/image/A1B2C3D4E5/photo02.bin"
+    }
+  ],
+  "playlist": [
+    "photo02.bin"
+  ]
+}
+```
+
+## Wi-Fi Provisioning (DPP / Easy Connect)
+- **DPP Mode:** If NVS lacks valid Wi-Fi credentials, the system enters Device Provisioning Protocol (DPP) Enrollee mode and renders a QR Code directly onto the E-Paper display.
+- **Timeout & Power Guard:** Provisioning and connection attempts are capped at a 5-minute total budget. If no connection is established within 5 minutes, the ESP32 automatically returns to Deep Sleep to preserve battery capacity.
+
+---
+
+## Storage & File System (LittleFS)
+- **Partition Target:** Mounts under partition label `storage` formatted with LittleFS (configured in `partitions.csv`).
+
+- **Limits:**
+  - Maximum filename length strictly governed by `AppConfig::MAX_FILENAME_LEN` (supports `.bin` format images).
+  - File count capped by `AppConfig::MAX_FILE_COUNT`.
+
+- **Playlist State:** State tracking maintained via `playlist.idx`.
+
+---
+
+
+## Getting Started
+
+### 1. ESP32 Client Setup
+1. Clone the repository and navigate to the client folder:
+   ```bash
+   git clone [https://github.com/cuckoo3/e-ink-photo-frame.git](https://github.com/cuckoo3/e-ink-photo-frame.git)
+   cd e-ink-photo-frame/photo-frame-client
+
+2. Build and flash using ESP-IDF (Eclipse IDE or CLI):
+
+   * **Eclipse IDE (ESP-IDF Plugin)**:
+     1. Import the `photo-frame-client` directory as an ESP-IDF project (`File` -> `Import` -> `C/C++` -> `Existing Code as Makefile Project` or `ESP-IDF Project`).
+     2. Set the target toolchain to **esp32s3**.
+     3. Select your serial port in the launch configuration.
+     4. Click the **Build** (hammer icon) button, followed by **Flash** (play icon) to upload the firmware.
+
+   * **Command Line (Alternative)**:
+     ```bash
+     idf.py set-target esp32s3
+     idf.py build
+     idf.py -p <YOUR_PORT> flash monitor
+     ```
+
+### 2. Web Server Setup
+1. Navigate to the server folder and install dependencies:
+   ```bash
+   cd e-ink-photo-frame/photo-frame-server
+   npm install
+
+2. Start the backend service:
+   ```bash
+   node server
+
+---
+## License
+
+This project is provided for personal and educational use only under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)** license. Commercial use is strictly prohibited without explicit permission.
