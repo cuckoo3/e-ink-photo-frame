@@ -1,8 +1,25 @@
-# 13.3" E-Paper Digital Photo Frame (ESP32-133C02 + Node.js)
-An ultra-low-power, Wi-Fi-connected digital photo frame driven by **ESP32-133C02** and a **13.3-inch Good Display E-Ink Spectra 6 (E6 / GDEP133C02)** color e-Paper display. The firmware features automated server syncing via UDP multicast discovery, HTTP image downloading, LittleFS file management, Wi-Fi DPP (Easy Connect) provisioning with on-screen QR codes, and aggressive deep sleep power management.
+# 13.3" E-Paper Digital Photo Frame
 
-The system uses a dedicated **Node.js backend server** that processes, crops, and dithers uploaded JPEG images into 4-bit packed binary color buffers.
-The ESP32-133C02 client wakes up on a schedule, fetches image updates over Wi-Fi, stores them locally in **LittleFS** (holding up to 16 images), updates the screen, and enters deep sleep for maximum battery longevity.
+An ultra-low-power, Wi-Fi-connected digital photo frame powered by
+**ESP32-133C02** and a **13.3-inch Good Display E-Ink Spectra 6
+(E6 / GDEP133C02)** color e-Paper display.
+
+The ESP32 firmware provides:
+
+- Wi-Fi DPP (Easy Connect) provisioning
+- UDP multicast server discovery
+- Scheduled HTTP synchronization
+- LittleFS local image storage
+- Hardware-button navigation
+- Aggressive deep-sleep power management
+
+The project also includes a dedicated **Node.js backend server** that
+processes, crops, and dithers uploaded JPEG images into optimized
+4-bit packed binary image buffers for the E-Paper display.
+
+The ESP32 client periodically wakes from deep sleep, synchronizes
+images over Wi-Fi, stores them in LittleFS, updates the display, and
+returns to deep sleep.
 
 ---
 
@@ -40,7 +57,7 @@ The ESP32-133C02 client wakes up on a schedule, fetches image updates over Wi-Fi
 | :--- | :--- |
 | **Microcontroller** |  **ESP32-133C02** (ESP32-S3 with 16MB Flash) |
 | **Display** | Good Display 13.3" Spectra 6 (`GDEP133C02`) |
-| **Resolution** | 1200 × 1600 (Dual Driver ICs: Left 600px Master / Right 600px Slave) |
+| **Resolution** | 1200 × 1600 pixels (dual 600-pixel-wide driver sections) |
 | **Storage** | On-chip Flash formatted with LittleFS (`storage` partition) |
 | **Connectivity** | 2.4 GHz Wi-Fi (DPP / Easy Connect Enrollee support) |
 | **Power Management** | Ext1 Deep Sleep Wakeup + Hardware Power Rail Switch (`LOAD_SW`) |
@@ -57,7 +74,7 @@ The ESP32-133C02 client wakes up on a schedule, fetches image updates over Wi-Fi
 | :--- | :--- | :--- |
 | **CLK (EPD_SCK)** | **GPIO 9** | SPI Clock Line |
 | **MOSI (EPD_MOSI)** | **GPIO 41** | SPI Data Line (Master Out Slave In) |
-| **MISO (EPD_MISO)** | **GPIO 41** | SPI Data Line (Master In Slave Out) |
+| **MISO (EPD_MISO)** | **GPIO 40** | SPI Data Line (Master In Slave Out) |
 | **DC (EPD_DC)** | **GPIO 2** | Data/Command Control Selection |
 | **CS0 (EPD_CS_M)** | **GPIO 18** | Master Driver IC Chip Select |
 | **CS1 (EPD_CS_S)** | **GPIO 17** | Slave Driver IC Chip Select |
@@ -75,8 +92,6 @@ The ESP32-133C02 client wakes up on a schedule, fetches image updates over Wi-Fi
 | **SW4_NEXT_IMG** | **GPIO 14** | System Wakeup & Navigate to next image |
 
 ---
-
-## Hardware Controls & Wi-Fi Provisioning
 
 ## Memory & Flash Partition Layout
 
@@ -225,8 +240,9 @@ JSON
 ### 1. ESP32 Client Setup
 1. Clone the repository and navigate to the client folder:
    ```bash
-   git clone [https://github.com/cuckoo3/e-ink-photo-frame.git](https://github.com/cuckoo3/e-ink-photo-frame.git)
+   git clone https://github.com/cuckoo3/e-ink-photo-frame.git
    cd e-ink-photo-frame/photo-frame-client
+   ```
 
 2. Build and flash using ESP-IDF (Eclipse IDE or CLI):
 
@@ -248,14 +264,35 @@ JSON
    ```bash
    cd e-ink-photo-frame/photo-frame-server
    npm install
+   ```
 
 2. Start the backend service:
    ```bash
-   node server
+   npm start
+   ```
 
 ---
+## AI-Assisted Development
+
+This project was developed with substantial assistance from
+Google Gemini and OpenAI ChatGPT for code generation, debugging,
+troubleshooting, documentation, and development guidance.
+
+The project author reviewed, modified, integrated, and tested
+the generated code and is responsible for the final implementation.
+
+---
+
 ## License
 
-This project is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0).
+This project, including the original source code, firmware,
+server software, documentation, and 3D models, is licensed under
+the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0).
 
-Commercial use is not permitted without a separate license from the copyright holder.
+Commercial use is not permitted without a separate license from
+the copyright holder.
+
+Third-party software and libraries included in or used by this
+project remain subject to their respective licenses.
+
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
