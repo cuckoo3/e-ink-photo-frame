@@ -6,6 +6,18 @@ The ESP32-133C02 client wakes up on a schedule, fetches image updates over Wi-Fi
 
 ---
 
+<p align="center">
+  <img src="images/frame_front.jpg" width="700">
+</p>
+<p align="center">
+  <img src="images/frame_back.jpg" width="700">
+</p>
+<p align="center">
+  <img src="images/admin.jpg" width="700">
+</p>
+
+---
+
 ## Features & System Overview
 
 ### ESP32-133C02 Client Firmware
