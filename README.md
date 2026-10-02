@@ -296,3 +296,11 @@ Third-party software and libraries included in or used by this
 project remain subject to their respective licenses.
 
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
+
+---
+
+## ☕ Support
+
+If you find this project helpful or use it for your own E-Paper display setup, consider buying me a coffee to support further development and hardware testing!
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/cuckoocuckoo)
