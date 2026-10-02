@@ -61,12 +61,10 @@ function clamp(value, min = 0, max = 255) {
     return Math.max(min, Math.min(value, max));
 }
 
-// ----------------- Image Manipulation & Canvas Helpers -----------------
-
-function getScaledAndCroppedCanvas(img) {
-    const isLandscape = img.width > img.height;
-    const targetWidth = isLandscape ? 1600 : 1200;
-    const targetHeight = isLandscape ? 1200 : 1600;
+function getScaledAndCroppedCanvas(img, orientation = 'landscape') {
+    const isPortrait = orientation === 'portrait';
+    const targetWidth = isPortrait ? 1200 : 1600;
+    const targetHeight = isPortrait ? 1600 : 1200;
 
     const scale = Math.max(targetWidth / img.width, targetHeight / img.height);
     const cropWidth = targetWidth / scale;
@@ -86,6 +84,22 @@ function getScaledAndCroppedCanvas(img) {
     );
 
     return offscreen;
+}
+
+/**
+ * Rotates a portrait canvas (1200x1600) 90 degrees clockwise to 1600x1200 landscape.
+ */
+function rotateCanvasClockwise(sourceCanvas) {
+    const rotated = document.createElement('canvas');
+    rotated.width = sourceCanvas.height; // 1600
+    rotated.height = sourceCanvas.width; // 1200
+
+    const ctx = rotated.getContext('2d');
+    ctx.translate(rotated.width, 0);
+    ctx.rotate((90 * Math.PI) / 180);
+    ctx.drawImage(sourceCanvas, 0, 0);
+
+    return rotated;
 }
 
 /**
