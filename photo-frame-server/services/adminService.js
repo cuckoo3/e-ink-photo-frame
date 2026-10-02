@@ -186,33 +186,40 @@ module.exports = function(config, uploadsBaseDir) {
 	});
 	
 	/**
-     * GET /admin/:deviceId/config
-     * Retrieves configuration (sleep duration in minutes) for a given device
-     */
-    router.get('/:deviceId/config', (req, res) => {
-        const { deviceId } = req.params;
-		const registry = getRegistry();
-		
-        const device = registry.devices[deviceId] || {};
-        const sleepDurationMin = device.sleepDurationMin !== undefined ? device.sleepDurationMin : 240;
+	 * GET /admin/:deviceId/config
+	 * Retrieves configuration (sleep duration in minutes & orientation) for a given device
+	 */
+     router.get('/:deviceId/config', (req, res) => {
+         const { deviceId } = req.params;
+ 		const registry = getRegistry();
+ 		
+         const device = registry.devices[deviceId] || {};
+         const sleepDurationMin = device.sleepDurationMin !== undefined ? device.sleepDurationMin : 240;
+         const orientation = device.orientation || 'landscape';
 
-        return res.json({
-            success: true,
-            deviceId,
-            sleepDurationMin
-        });
-    });
+         return res.json({
+             success: true,
+             deviceId,
+             sleepDurationMin,
+             orientation
+         });
+     });
 	
 	/**
      * POST /admin/:deviceId/config
-     * Updates configuration (sleep duration in minutes) and persists to devices.json
+     * Updates configuration (sleep duration in minutes & orientation) and persists to devices.json
      */
-    router.post('/:deviceId/config', (req, res) => {
+
+	router.post('/:deviceId/config', (req, res) => {
         const { deviceId } = req.params;
-        const { sleepDurationMin } = req.body;
+        const { sleepDurationMin, orientation } = req.body;
 
         if (sleepDurationMin === undefined || isNaN(sleepDurationMin) || sleepDurationMin < 1) {
             return res.status(400).json({ success: false, error: 'Invalid sleep duration value in minutes.' });
+        }
+
+        if (orientation && !['landscape', 'portrait'].includes(orientation)) {
+            return res.status(400).json({ success: false, error: 'Invalid orientation value. Must be "landscape" or "portrait".' });
         }
 
 		const registry = getRegistry();
@@ -221,14 +228,19 @@ module.exports = function(config, uploadsBaseDir) {
         }
 
         registry.devices[deviceId].sleepDurationMin = parseInt(sleepDurationMin, 10);
+        if (orientation) {
+            registry.devices[deviceId].orientation = orientation;
+        }
+
         saveRegistryToDisk();
 
-        console.log(`[${new Date().toLocaleString()}] [Config Update] Device ${deviceId} sleepDurationMin set to ${sleepDurationMin} min`);
+        console.log(`[${new Date().toLocaleString()}] [Config Update] Device ${deviceId} sleepDurationMin set to ${sleepDurationMin} min, orientation set to ${registry.devices[deviceId].orientation}`);
 
         return res.json({
             success: true,
             deviceId,
-            sleepDurationMin: registry.devices[deviceId].sleepDurationMin
+            sleepDurationMin: registry.devices[deviceId].sleepDurationMin,
+            orientation: registry.devices[deviceId].orientation
         });
     });
 	
