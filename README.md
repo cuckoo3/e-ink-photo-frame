@@ -270,8 +270,65 @@ JSON
    ```bash
    npm start
    ```
+### 3. Web Server Setup (Production / Systemd Service)
+If you are running the backend server on a Linux host (such as a Raspberry Pi) and want it to run persistently in the background as a system service, follow these steps:
+
+1. Create a systemd service file:
+   ```bash
+   sudo nano /etc/systemd/system/photo-frame-server.service
+   ```
+
+2. Paste the following configuration (adjust paths and user names to match your environment):
+   ```ini
+   [Unit]
+   Description=E-Paper Photo Frame Express Server
+   After=network.target network-online.target systemd-resolved.service
+   Wants=network-online.target
+
+   [Service]
+   Type=simple
+   User=pi
+   Group=pi
+   WorkingDirectory=/opt/photo-frame-server/photo-frame-server
+
+   # Environment variables
+   Environment=NODE_ENV=production
+   Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin
+   Environment=LOG_PATH=/var/log/photo-frame-server.log
+   Environment=ERROR_LOG_PATH=/var/log/photo-frame-server-error.log
+   
+   # Grant capability to bind to low ports (like 80 or 443) without full root access
+   CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+   AmbientCapabilities=CAP_NET_BIND_SERVICE
+   
+   # Direct Node.js execution
+   ExecStart=/usr/local/bin/node server.js
+   
+   Restart=always
+   RestartSec=5
+   
+   # Logging configuration
+   StandardOutput=append:/var/log/photo-frame-server.log
+   StandardError=append:/var/log/photo-frame-server-error.log
+   
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. Enable and start the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable photo-frame-server
+   sudo systemctl start photo-frame-server
+   ```
+
+4. Check service status:
+   ```bash
+   sudo systemctl status photo-frame-server
+   ```
 
 ---
+
 ## AI-Assisted Development
 
 This project was developed with substantial assistance from
@@ -280,8 +337,6 @@ troubleshooting, documentation, and development guidance.
 
 The project author reviewed, modified, integrated, and tested
 the generated code and is responsible for the final implementation.
-
----
 
 ## License
 
