@@ -17,6 +17,7 @@ const initUdpListener = require('./services/udpService');
 const frameService = require('./services/frameService');
 const adminService = require('./services/adminService');
 const { initRegistry } = require('./utils/deviceRegistry');
+const logger= require('./utils/logger');
 
 const app = express();
 
@@ -24,7 +25,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-
+console.log = logger.log;
+console.info = logger.info;
+console.warn = logger.warn;
+console.error = logger.error;
 
 // Load registry into memory at server startup
 const registry = initRegistry();
@@ -65,5 +69,5 @@ app.use('/api', frameService(config, STORAGE_DIR));
 app.use('/admin', adminService(config, STORAGE_DIR));
 
 app.listen(config.httpPort, () => {
-    console.log(`[${new Date().toLocaleString()}] [HTTP] Web Admin interface running at http://localhost:${config.httpPort}`);
+    console.log(`[HTTP] Web Admin interface running at http://localhost:${config.httpPort}`);
 });
